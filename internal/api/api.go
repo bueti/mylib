@@ -28,13 +28,18 @@ func NewRouter(deps Deps) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	// Attach user (if any) to every request. Individual handlers
+	// decide whether to require it.
+	r.Use(OptionalAuth(deps.Store))
 
-	humaCfg := huma.DefaultConfig("mylib", "0.1.0")
+	humaCfg := huma.DefaultConfig("mylib", "0.2.0")
 	humaCfg.OpenAPIPath = "/api/openapi"
 	humaCfg.DocsPath = "/api/docs"
 	humaCfg.SchemasPath = "/api/schemas"
 	api := humachi.New(r, humaCfg)
 
+	registerAuth(r, deps.Store)
+	registerUsers(r, deps.Store)
 	registerBooks(api, deps)
 	registerTaxonomy(api, deps)
 	registerScan(api, deps)

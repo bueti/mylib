@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bueti/mylib/internal/api"
+	"github.com/bueti/mylib/internal/auth"
 	"github.com/bueti/mylib/internal/config"
 	"github.com/bueti/mylib/internal/covers"
 	"github.com/bueti/mylib/internal/db"
@@ -50,6 +51,11 @@ func run() error {
 	defer conn.Close()
 
 	store := library.New(conn)
+
+	if err := bootstrapAdmin(context.Background(), store); err != nil {
+		return err
+	}
+
 	coverCache, err := covers.New(cfg.DataDir)
 	if err != nil {
 		return err
@@ -126,6 +132,34 @@ func runPeriodicScans(ctx context.Context, sc *scanner.Scanner, interval time.Du
 			}
 		}
 	}
+}
+
+// bootstrapAdmin creates the initial admin user from MYLIB_ADMIN_USER
+// and MYLIB_ADMIN_PASSWORD when the users table is empty. If the table
+// is empty and the env vars are not set, it logs a loud warning.
+func bootstrapAdmin(ctx context.Context, store *library.Store) error {
+	count, err := store.CountUsers(ctx)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	user := os.Getenv("MYLIB_ADMIN_USER")
+	pass := os.Getenv("MYLIB_ADMIN_PASSWORD")
+	if user == "" || pass == "" {
+		slog.Warn("no users exist and MYLIB_ADMIN_USER/MYLIB_ADMIN_PASSWORD not set; write endpoints will reject all requests until a user is created")
+		return nil
+	}
+	hash, err := auth.HashPassword(pass)
+	if err != nil {
+		return err
+	}
+	if _, err := store.CreateUser(ctx, user, hash, library.RoleAdmin); err != nil {
+		return err
+	}
+	slog.Info("bootstrapped admin user", "username", user)
+	return nil
 }
 
 func setupLogger(level string) {

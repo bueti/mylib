@@ -48,6 +48,9 @@ func registerScan(api huma.API, d Deps) {
 		Tags:          []string{"scan"},
 		DefaultStatus: http.StatusAccepted,
 	}, func(ctx context.Context, _ *struct{}) (*TriggerScanOutput, error) {
+		if UserFromContext(ctx) == nil {
+			return nil, huma.Error401Unauthorized("login required")
+		}
 		id, err := d.Scanner.ScanAll(ctx)
 		if err != nil {
 			return nil, huma.Error500InternalServerError("start scan", err)
