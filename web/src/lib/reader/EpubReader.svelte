@@ -9,12 +9,14 @@
 	let error = $state<string | null>(null);
 	let atStart = $state(true);
 	let atEnd = $state(false);
-	let location = $state('');
+	let pageInfo = $state('');
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let book: any;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let rendition: any;
+
+	let resizeObserver: ResizeObserver | undefined;
 
 	onMount(async () => {
 		// Capture the initial bookId (props are reactive, but we only
@@ -27,27 +29,63 @@
 			const buf = await res.arrayBuffer();
 
 			book = ePub(buf);
+			// Wait for the book (manifest, spine) before rendering;
+			// otherwise pagination can stall after the first chapter.
+			await book.ready;
+
 			rendition = book.renderTo(container, {
 				width: '100%',
 				height: '100%',
-				flow: 'paginated',
-				spread: 'auto'
+				// scrolled-doc renders each chapter as a scrollable
+				// document. This sidesteps epub.js's column-based
+				// pagination which breaks on books with wide images,
+				// fixed-width CSS, or non-trivial layouts.
+				flow: 'scrolled-doc',
+				manager: 'default',
+				allowScriptedContent: true
+			});
+
+			// Generate locations so percentage and atEnd work reliably.
+			book.locations.generate(1600).catch(() => {
+				// non-fatal — pagination still works without precise locations
 			});
 
 			const saved = localStorage.getItem(storageKey);
 			await rendition.display(saved ?? undefined);
 
-			// Track location for the progress bar and persist it.
-			rendition.on('relocated', (loc: { start: { cfi: string; percentage: number }; atStart?: boolean; atEnd?: boolean }) => {
-				location = loc.start.cfi;
-				atStart = !!loc.atStart;
-				atEnd = !!loc.atEnd;
-				try {
-					localStorage.setItem(storageKey, loc.start.cfi);
-				} catch {
-					// quota exceeded / private mode — ignore
+			// Re-paginate whenever the viewport resizes. Without this
+			// the first layout can be wrong (before flex settles) and
+			// chapter content ends up clipped.
+			if (container) {
+				resizeObserver = new ResizeObserver(() => {
+					if (!container) return;
+					try {
+						rendition.resize(container.clientWidth, container.clientHeight);
+					} catch {
+						// ignore transient layout errors
+					}
+				});
+				resizeObserver.observe(container);
+			}
+
+			rendition.on(
+				'relocated',
+				(loc: {
+					start: { cfi: string; percentage: number; displayed: { page: number; total: number } };
+					atStart?: boolean;
+					atEnd?: boolean;
+				}) => {
+					atStart = !!loc.atStart;
+					atEnd = !!loc.atEnd;
+					const pct = loc.start.percentage ? Math.round(loc.start.percentage * 100) : 0;
+					pageInfo = `${loc.start.displayed.page}/${loc.start.displayed.total} · ${pct}%`;
+					try {
+						localStorage.setItem(storageKey, loc.start.cfi);
+					} catch {
+						// ignore quota / private mode
+					}
 				}
-			});
+			);
 
 			loading = false;
 		} catch (e) {
@@ -58,6 +96,7 @@
 
 	onDestroy(() => {
 		try {
+			resizeObserver?.disconnect();
 			rendition?.destroy();
 			book?.destroy();
 		} catch {
@@ -96,21 +135,29 @@
 	<button class="nav nav-prev" onclick={prev} disabled={atStart} aria-label="Previous page">‹</button>
 	<div class="viewport" bind:this={container}></div>
 	<button class="nav nav-next" onclick={next} disabled={atEnd} aria-label="Next page">›</button>
+
+	{#if pageInfo && !loading}
+		<div class="page-info">{pageInfo}</div>
+	{/if}
 </div>
 
 <style>
 	.reader {
 		position: relative;
+		flex: 1 1 auto;
 		display: flex;
 		align-items: stretch;
-		height: calc(100vh - 60px);
+		min-width: 0;
+		min-height: 0;
 		background: #fafafa;
 	}
 	.viewport {
 		flex: 1;
+		min-width: 0;
 		background: #fff;
 		box-shadow: 0 0 20px rgba(0, 0, 0, 0.08);
 		margin: 0 1rem;
+		overflow-y: auto;
 	}
 	.nav {
 		flex: 0 0 60px;
@@ -120,6 +167,8 @@
 		color: #888;
 		cursor: pointer;
 		transition: color 0.1s;
+		align-self: center;
+		height: 100%;
 	}
 	.nav:hover:not(:disabled) {
 		color: #222;
@@ -139,5 +188,16 @@
 	}
 	.status.error {
 		color: #b00020;
+	}
+	.page-info {
+		position: absolute;
+		bottom: 0.5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		font-size: 0.75rem;
+		color: #888;
+		background: rgba(255, 255, 255, 0.85);
+		padding: 0.125rem 0.5rem;
+		border-radius: 10px;
 	}
 </style>

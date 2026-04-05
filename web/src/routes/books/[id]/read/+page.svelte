@@ -36,40 +36,64 @@
 	}
 </script>
 
-{#if loading}
-	<p>Loading…</p>
-{:else if error}
-	<p class="error">Error: {error}</p>
-{:else if book}
-	<div class="reader-header">
-		<a href="/books/{book.id}" class="back">← Back to details</a>
-		<span class="title">{book.title}</span>
-	</div>
-	{#if book.format === 'pdf'}
-		<PdfReader bookId={book.id} />
-	{:else if book.format === 'epub'}
-		<EpubReader bookId={book.id} title={book.title} />
-	{:else}
-		<p class="error">
-			Format "{book.format}" can't be read in-browser yet. <a
-				href="/api/books/{book.id}/file"
-				data-sveltekit-reload
-				download>Download</a
-			> instead.
-		</p>
+<!--
+  The reader is a fixed overlay that covers the viewport below the site
+  header. This escapes the root layout's max-width + padding without
+  touching its styles, so other pages are unaffected.
+-->
+<div class="reader-overlay">
+	{#if loading}
+		<p class="status">Loading…</p>
+	{:else if error}
+		<p class="status error">Error: {error}</p>
+	{:else if book}
+		<div class="reader-header">
+			<a href="/books/{book.id}" class="back">← Back to details</a>
+			<span class="title">{book.title}</span>
+		</div>
+		<div class="reader-body">
+			{#if book.format === 'pdf'}
+				<PdfReader bookId={book.id} />
+			{:else if book.format === 'epub'}
+				<EpubReader bookId={book.id} title={book.title} />
+			{:else}
+				<p class="status">
+					Format "{book.format}" can't be read in-browser yet. <a
+						href="/api/books/{book.id}/file"
+						data-sveltekit-reload
+						download>Download</a
+					> instead.
+				</p>
+			{/if}
+		</div>
 	{/if}
-{/if}
+</div>
 
 <style>
+	.reader-overlay {
+		position: fixed;
+		top: 58px; /* sits below the site header */
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		flex-direction: column;
+		background: #fafafa;
+		z-index: 10;
+	}
 	.reader-header {
+		flex: 0 0 auto;
 		display: flex;
 		align-items: center;
 		gap: 1rem;
-		padding: 0.5rem 0 0.75rem;
+		padding: 0.5rem 1.5rem;
 		border-bottom: 1px solid #e0e0e0;
-		margin: -2rem -2rem 0.5rem;
-		padding-left: 2rem;
-		padding-right: 2rem;
+		background: #fff;
+	}
+	.reader-body {
+		flex: 1 1 auto;
+		min-height: 0;
+		display: flex;
 	}
 	.back {
 		color: #666;
@@ -85,7 +109,11 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.error {
+	.status {
+		margin: 2rem;
+		color: #666;
+	}
+	.status.error {
 		color: #b00020;
 	}
 </style>
