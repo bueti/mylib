@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { session, whoami, logout } from '$lib/api/session';
+	import { session, whoami, logout } from '$lib/api/session.svelte';
 	import { migrateLocalProgress } from '$lib/api/migrate-local';
 
 	let { children } = $props();
