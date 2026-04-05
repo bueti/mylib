@@ -1,31 +1,77 @@
 <script lang="ts">
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { client, type Book } from '$lib/api/client';
 
+	// Filter state is derived from URL search params so links are
+	// shareable and the browser back button restores prior views.
 	let query = $state('');
+	let activeAuthor = $state<{ id: number; name: string } | null>(null);
+	let activeSeries = $state<{ id: number; name: string } | null>(null);
+	let activeTag = $state<string | null>(null);
+	let activeFormat = $state<string | null>(null);
+
 	let books = $state<Book[]>([]);
 	let total = $state(0);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 
-	// Debounce query → load.
+	// Rescan state.
+	let scanning = $state(false);
+	let scanMessage = $state<string | null>(null);
+
+	// Sync local state ← URL whenever the URL changes.
+	$effect(() => {
+		const sp = page.url.searchParams;
+		query = sp.get('q') ?? '';
+		const aid = Number(sp.get('author_id'));
+		activeAuthor = aid > 0 ? { id: aid, name: sp.get('author_name') ?? `#${aid}` } : null;
+		const sid = Number(sp.get('series_id'));
+		activeSeries = sid > 0 ? { id: sid, name: sp.get('series_name') ?? `#${sid}` } : null;
+		activeTag = sp.get('tag');
+		activeFormat = sp.get('format');
+	});
+
+	// Debounced fetch whenever any filter changes.
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	$effect(() => {
-		const q = query;
+		// Re-subscribe to all filter signals so this effect re-runs on change.
+		const snapshot = {
+			q: query,
+			author: activeAuthor?.id,
+			series: activeSeries?.id,
+			tag: activeTag,
+			format: activeFormat
+		};
 		clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => load(q), 200);
+		debounceTimer = setTimeout(() => load(snapshot), 150);
 		return () => clearTimeout(debounceTimer);
 	});
 
-	async function load(q: string) {
+	async function load(f: {
+		q: string;
+		author?: number;
+		series?: number;
+		tag?: string | null;
+		format?: string | null;
+	}) {
 		loading = true;
 		error = null;
 		try {
 			const { data, error: err, response } = await client.GET('/api/books', {
-				params: { query: { q: q || undefined, limit: 60, sort: '-added' } }
+				params: {
+					query: {
+						q: f.q || undefined,
+						author_id: f.author || undefined,
+						series_id: f.series || undefined,
+						tag: f.tag || undefined,
+						format: f.format || undefined,
+						limit: 60,
+						sort: '-added'
+					}
+				}
 			});
-			if (err) {
-				throw new Error(err.detail || response.statusText);
-			}
+			if (err) throw new Error(err.detail || response.statusText);
 			books = data?.books ?? [];
 			total = data?.total ?? 0;
 		} catch (e) {
@@ -36,17 +82,100 @@
 			loading = false;
 		}
 	}
+
+	// Push the current search query into the URL (on user input).
+	function onSearch(e: Event) {
+		const value = (e.target as HTMLInputElement).value;
+		const sp = new URLSearchParams(page.url.searchParams);
+		if (value) sp.set('q', value);
+		else sp.delete('q');
+		goto('/?' + sp.toString(), { keepFocus: true, replaceState: true, noScroll: true });
+	}
+
+	function clearFilter(key: 'author_id' | 'series_id' | 'tag' | 'format' | 'q') {
+		const sp = new URLSearchParams(page.url.searchParams);
+		sp.delete(key);
+		if (key === 'author_id') sp.delete('author_name');
+		if (key === 'series_id') sp.delete('series_name');
+		goto('/?' + sp.toString(), { keepFocus: true, replaceState: false });
+	}
+
+	async function rescan() {
+		scanning = true;
+		scanMessage = 'Starting scan…';
+		try {
+			const { data: job, error: err } = await client.POST('/api/scan');
+			if (err || !job) throw new Error('Failed to start scan');
+			let current = job;
+			// Poll until the job finishes.
+			while (current.status === 'running') {
+				await new Promise((r) => setTimeout(r, 500));
+				const { data: polled } = await client.GET('/api/scan/{id}', {
+					params: { path: { id: current.id } }
+				});
+				if (!polled) break;
+				current = polled;
+				scanMessage = `Scanning… ${current.files_seen} seen, ${current.files_added} new`;
+			}
+			if (current.status === 'done') {
+				scanMessage = `Scan complete · +${current.files_added} / ~${current.files_updated} / −${current.files_removed}`;
+			} else {
+				scanMessage = 'Scan failed: ' + (current.error || 'unknown');
+			}
+			// Refresh the list.
+			load({ q: query, author: activeAuthor?.id, series: activeSeries?.id, tag: activeTag, format: activeFormat });
+		} catch (e) {
+			scanMessage = e instanceof Error ? e.message : 'Scan failed';
+		} finally {
+			scanning = false;
+			setTimeout(() => (scanMessage = null), 4000);
+		}
+	}
 </script>
 
 <div class="toolbar">
 	<input
 		type="search"
 		placeholder="Search title, author, series…"
-		bind:value={query}
+		value={query}
+		oninput={onSearch}
 		aria-label="Search"
 	/>
+	<button onclick={rescan} disabled={scanning} class="rescan">
+		{scanning ? 'Scanning…' : 'Rescan'}
+	</button>
 	<span class="count">{total} {total === 1 ? 'book' : 'books'}</span>
 </div>
+
+{#if scanMessage}
+	<p class="scan-msg">{scanMessage}</p>
+{/if}
+
+{#if activeAuthor || activeSeries || activeTag || activeFormat}
+	<div class="chips">
+		<span class="chips-label">Filters:</span>
+		{#if activeAuthor}
+			<button class="chip" onclick={() => clearFilter('author_id')}>
+				Author: {activeAuthor.name} ✕
+			</button>
+		{/if}
+		{#if activeSeries}
+			<button class="chip" onclick={() => clearFilter('series_id')}>
+				Series: {activeSeries.name} ✕
+			</button>
+		{/if}
+		{#if activeTag}
+			<button class="chip" onclick={() => clearFilter('tag')}>
+				Tag: {activeTag} ✕
+			</button>
+		{/if}
+		{#if activeFormat}
+			<button class="chip" onclick={() => clearFilter('format')}>
+				Format: {activeFormat} ✕
+			</button>
+		{/if}
+	</div>
+{/if}
 
 {#if error}
 	<p class="error">Error: {error}</p>
@@ -55,12 +184,15 @@
 {#if loading && books.length === 0}
 	<p>Loading…</p>
 {:else if books.length === 0}
-	<p class="empty">No books yet. Point MYLIB_LIBRARY_ROOTS at a directory of EPUBs or PDFs and hit <a href="/api/docs">the API docs</a> to trigger a scan.</p>
+	<p class="empty">
+		No books match. Point MYLIB_LIBRARY_ROOTS at a directory of EPUBs or PDFs and hit
+		<button class="link" onclick={rescan}>Rescan</button>.
+	</p>
 {:else}
 	<ul class="grid">
 		{#each books as book (book.id)}
 			<li class="card">
-				<a href="/api/books/{book.id}/file" class="cover" data-sveltekit-reload download>
+				<a href="/books/{book.id}" class="cover">
 					{#if book.has_cover}
 						<img src="/api/books/{book.id}/cover" alt="" loading="lazy" />
 					{:else}
@@ -68,7 +200,7 @@
 					{/if}
 				</a>
 				<div class="meta">
-					<div class="title" title={book.title}>{book.title}</div>
+					<a href="/books/{book.id}" class="title" title={book.title}>{book.title}</a>
 					<div class="authors">
 						{(book.authors ?? []).map((a) => a.name).join(', ') || '—'}
 					</div>
@@ -83,7 +215,7 @@
 		display: flex;
 		gap: 1rem;
 		align-items: center;
-		margin-bottom: 1.5rem;
+		margin-bottom: 1rem;
 	}
 	input[type='search'] {
 		flex: 1;
@@ -93,9 +225,59 @@
 		border-radius: 4px;
 		background: #fff;
 	}
+	.rescan {
+		padding: 0.5rem 1rem;
+		background: #222;
+		color: #fff;
+		border: 0;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		cursor: pointer;
+	}
+	.rescan:disabled {
+		background: #888;
+		cursor: wait;
+	}
+	.rescan:hover:not(:disabled) {
+		background: #000;
+	}
 	.count {
 		color: #666;
 		font-size: 0.875rem;
+	}
+	.scan-msg {
+		margin: 0 0 1rem;
+		padding: 0.5rem 0.75rem;
+		background: #f0f7ff;
+		border-left: 3px solid #0366d6;
+		font-size: 0.875rem;
+		color: #0366d6;
+	}
+	.chips {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-bottom: 1.25rem;
+	}
+	.chips-label {
+		color: #666;
+		font-size: 0.875rem;
+	}
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.25rem 0.625rem;
+		background: #eef;
+		border: 0;
+		border-radius: 12px;
+		font-size: 0.8125rem;
+		color: #224;
+		cursor: pointer;
+	}
+	.chip:hover {
+		background: #dde;
 	}
 	.error {
 		color: #b00020;
@@ -103,6 +285,15 @@
 	.empty {
 		color: #666;
 		line-height: 1.5;
+	}
+	.empty .link {
+		background: none;
+		border: 0;
+		padding: 0;
+		color: #0366d6;
+		cursor: pointer;
+		text-decoration: underline;
+		font: inherit;
 	}
 	.grid {
 		display: grid;
@@ -146,6 +337,11 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		color: inherit;
+		text-decoration: none;
+	}
+	.title:hover {
+		color: #0366d6;
 	}
 	.authors {
 		color: #666;
