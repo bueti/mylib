@@ -41,6 +41,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerBooks(api, deps)
 	registerTaxonomy(api, deps)
 	registerScan(api, deps)
+	registerFileRoutes(r, deps)
 
 	return r
 }
