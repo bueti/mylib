@@ -47,6 +47,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerCollections(api, deps)
 	registerFileRoutes(r, deps)
 	registerSSE(r, deps)
+	registerAdmin(r, deps.Store)
 
 	return r
 }

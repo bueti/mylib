@@ -41,6 +41,9 @@
 		<nav>
 			<a href="/">Books</a>
 			<a href="/collections">Collections</a>
+			{#if session.isAdmin}
+				<a href="/admin/duplicates">Duplicates</a>
+			{/if}
 		</nav>
 		<div class="user">
 			<span>{session.user.username}{session.user.role === 'admin' ? ' · admin' : ''}</span>
