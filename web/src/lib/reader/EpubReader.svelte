@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import ePub from 'epubjs';
 	import { loadProgress, makeSaver } from './progress';
+	import { themes, fontSizes, type ThemeName, type FontSize } from './themes';
 
 	let { bookId, title }: { bookId: number; title: string } = $props();
 
@@ -11,6 +12,17 @@
 	let atStart = $state(true);
 	let atEnd = $state(false);
 	let pageInfo = $state('');
+	let tocOpen = $state(false);
+	let currentTheme = $state<ThemeName>('light');
+	let currentFontSize = $state<FontSize>('M');
+
+	interface TocItem {
+		id: string;
+		href: string;
+		label: string;
+		subitems?: TocItem[];
+	}
+	let toc = $state<TocItem[]>([]);
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let book: any;
@@ -18,12 +30,9 @@
 	let rendition: any;
 
 	let resizeObserver: ResizeObserver | undefined;
-
 	let saver: ReturnType<typeof makeSaver> | undefined;
 
 	onMount(async () => {
-		// Props are reactive but this component is remounted per book,
-		// so capturing bookId once is fine.
 		const bid = bookId;
 		saver = makeSaver(bid);
 		try {
@@ -32,38 +41,38 @@
 			const buf = await res.arrayBuffer();
 
 			book = ePub(buf);
-			// Wait for the book (manifest, spine) before rendering;
-			// otherwise pagination can stall after the first chapter.
 			await book.ready;
+			toc = book.navigation?.toc ?? [];
 
 			rendition = book.renderTo(container, {
 				width: '100%',
 				height: '100%',
-				// scrolled-doc renders each chapter as a scrollable
-				// document. This sidesteps epub.js's column-based
-				// pagination which breaks on books with wide images,
-				// fixed-width CSS, or non-trivial layouts.
 				flow: 'scrolled-doc',
 				manager: 'default',
 				allowScriptedContent: true
 			});
 
-			// Generate locations so percentage and atEnd work reliably.
-			book.locations.generate(1600).catch(() => {
-				// non-fatal — pagination still works without precise locations
-			});
+			// Register themes and apply default. Users switch via the toolbar.
+			for (const [name, style] of Object.entries(themes)) {
+				rendition.themes.register(name, style);
+			}
 
-			// Prefer server-side progress; fall back to any legacy
-			// localStorage CFI from v0.1 so users don't lose their place.
+			book.locations.generate(1600).catch(() => {});
+
+			// Prefer server-side progress/prefs; fall back to localStorage.
 			const server = await loadProgress(bid);
+			if (server?.theme && server.theme in themes) currentTheme = server.theme as ThemeName;
+			if (server?.font_size && server.font_size in fontSizes) {
+				currentFontSize = server.font_size as FontSize;
+			}
+			rendition.themes.select(currentTheme);
+			rendition.themes.fontSize(fontSizes[currentFontSize]);
+
 			const localKey = `mylib.read.${bid}.cfi`;
 			const local = localStorage.getItem(localKey);
 			const startCfi = server?.position ?? local ?? undefined;
 			await rendition.display(startCfi);
 
-			// Re-paginate whenever the viewport resizes. Without this
-			// the first layout can be wrong (before flex settles) and
-			// chapter content ends up clipped.
 			if (container) {
 				resizeObserver = new ResizeObserver(() => {
 					if (!container) return;
@@ -87,7 +96,12 @@
 					atEnd = !!loc.atEnd;
 					const pct = loc.start.percentage ? Math.round(loc.start.percentage * 100) : 0;
 					pageInfo = `${loc.start.displayed.page}/${loc.start.displayed.total} · ${pct}%`;
-					saver?.save({ position: loc.start.cfi, percent: loc.start.percentage ?? 0 });
+					saver?.save({
+						position: loc.start.cfi,
+						percent: loc.start.percentage ?? 0,
+						theme: currentTheme,
+						font_size: currentFontSize
+					});
 				}
 			);
 
@@ -119,6 +133,18 @@
 	function prev() {
 		rendition?.prev();
 	}
+	function gotoHref(href: string) {
+		rendition?.display(href);
+		tocOpen = false;
+	}
+	function setTheme(name: ThemeName) {
+		currentTheme = name;
+		rendition?.themes.select(name);
+	}
+	function setFontSize(size: FontSize) {
+		currentFontSize = size;
+		rendition?.themes.fontSize(fontSizes[size]);
+	}
 
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
@@ -134,20 +160,70 @@
 <svelte:window onkeydown={onKey} onbeforeunload={onBeforeUnload} />
 
 <div class="reader">
-	{#if loading}
-		<p class="status">Opening {title}…</p>
-	{/if}
-	{#if error}
-		<p class="status error">Error: {error}</p>
-	{/if}
+	<aside class="toc" class:open={tocOpen}>
+		<header>
+			<span>Contents</span>
+			<button class="close" onclick={() => (tocOpen = false)} aria-label="Close table of contents">×</button>
+		</header>
+		<ul>
+			{#each toc as item (item.id)}
+				<li>
+					<button onclick={() => gotoHref(item.href)}>{item.label.trim()}</button>
+					{#if item.subitems && item.subitems.length > 0}
+						<ul>
+							{#each item.subitems as sub (sub.id)}
+								<li>
+									<button onclick={() => gotoHref(sub.href)}>{sub.label.trim()}</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+	</aside>
 
-	<button class="nav nav-prev" onclick={prev} disabled={atStart} aria-label="Previous page">‹</button>
-	<div class="viewport" bind:this={container}></div>
-	<button class="nav nav-next" onclick={next} disabled={atEnd} aria-label="Next page">›</button>
+	<div class="main">
+		<div class="toolbar">
+			<button onclick={() => (tocOpen = !tocOpen)} title="Contents">☰</button>
+			<div class="font-size" role="group" aria-label="Font size">
+				{#each ['S', 'M', 'L'] as size}
+					<button
+						class:active={currentFontSize === size}
+						onclick={() => setFontSize(size as FontSize)}
+					>{size}</button>
+				{/each}
+			</div>
+			<div class="theme" role="group" aria-label="Theme">
+				{#each ['light', 'sepia', 'dark'] as name}
+					<button
+						class:active={currentTheme === name}
+						class="theme-swatch theme-{name}"
+						onclick={() => setTheme(name as ThemeName)}
+						aria-label={name}
+						title={name}
+					></button>
+				{/each}
+			</div>
+		</div>
 
-	{#if pageInfo && !loading}
-		<div class="page-info">{pageInfo}</div>
-	{/if}
+		{#if loading}
+			<p class="status">Opening {title}…</p>
+		{/if}
+		{#if error}
+			<p class="status error">Error: {error}</p>
+		{/if}
+
+		<div class="viewport-wrap">
+			<button class="nav nav-prev" onclick={prev} disabled={atStart} aria-label="Previous page">‹</button>
+			<div class="viewport" bind:this={container}></div>
+			<button class="nav nav-next" onclick={next} disabled={atEnd} aria-label="Next page">›</button>
+		</div>
+
+		{#if pageInfo && !loading}
+			<div class="page-info">{pageInfo}</div>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -159,6 +235,127 @@
 		min-width: 0;
 		min-height: 0;
 		background: #fafafa;
+	}
+	.toc {
+		flex: 0 0 0;
+		width: 0;
+		overflow: hidden;
+		background: #fff;
+		border-right: 1px solid #e0e0e0;
+		transition: flex-basis 0.15s, width 0.15s;
+	}
+	.toc.open {
+		flex: 0 0 280px;
+		width: 280px;
+		overflow-y: auto;
+	}
+	.toc header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid #eee;
+		font-weight: 600;
+		font-size: 0.875rem;
+	}
+	.close {
+		background: none;
+		border: 0;
+		font-size: 1.25rem;
+		cursor: pointer;
+		color: #666;
+	}
+	.toc ul {
+		list-style: none;
+		padding: 0.25rem 0;
+		margin: 0;
+	}
+	.toc li ul {
+		padding-left: 1rem;
+	}
+	.toc button {
+		display: block;
+		width: 100%;
+		padding: 0.375rem 1rem;
+		background: none;
+		border: 0;
+		text-align: left;
+		font-size: 0.8125rem;
+		color: #333;
+		cursor: pointer;
+	}
+	.toc button:hover {
+		background: #f0f0f0;
+	}
+	.main {
+		flex: 1 1 auto;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.375rem 1rem;
+		border-bottom: 1px solid #e0e0e0;
+		background: #fff;
+	}
+	.toolbar > button {
+		background: transparent;
+		border: 0;
+		font-size: 1.125rem;
+		color: #333;
+		cursor: pointer;
+		padding: 0.25rem 0.5rem;
+		border-radius: 3px;
+	}
+	.toolbar > button:hover {
+		background: #f0f0f0;
+	}
+	.font-size,
+	.theme {
+		display: flex;
+		gap: 0.25rem;
+	}
+	.font-size button {
+		background: #f5f5f5;
+		border: 1px solid #ddd;
+		border-radius: 3px;
+		padding: 0.125rem 0.5rem;
+		font-size: 0.75rem;
+		cursor: pointer;
+	}
+	.font-size button.active {
+		background: #222;
+		color: #fff;
+		border-color: #222;
+	}
+	.theme-swatch {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: 1px solid #ccc;
+		cursor: pointer;
+	}
+	.theme-swatch.active {
+		outline: 2px solid #0366d6;
+		outline-offset: 2px;
+	}
+	.theme-light {
+		background: #fff;
+	}
+	.theme-sepia {
+		background: #f4ecd8;
+	}
+	.theme-dark {
+		background: #1a1a1a;
+	}
+	.viewport-wrap {
+		position: relative;
+		flex: 1 1 auto;
+		display: flex;
+		min-height: 0;
 	}
 	.viewport {
 		flex: 1;
