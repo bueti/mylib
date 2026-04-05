@@ -211,6 +211,10 @@ func (s *Store) ListBooks(ctx context.Context, f BookFilter) ([]*Book, int, erro
 		where = append(where, "b.series_id = ?")
 		args = append(args, *f.SeriesID)
 	}
+	if f.CollectionID != nil {
+		where = append(where, "b.id IN (SELECT book_id FROM collection_books WHERE collection_id = ?)")
+		args = append(args, *f.CollectionID)
+	}
 	if f.Tag != "" {
 		where = append(where, "b.id IN (SELECT bt.book_id FROM book_tags bt JOIN tags t ON t.id = bt.tag_id WHERE t.name = ?)")
 		args = append(args, f.Tag)

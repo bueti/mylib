@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/bueti/mylib/internal/auth"
 	"github.com/bueti/mylib/internal/covers"
@@ -123,8 +124,41 @@ func TestAuth_ScanRequiresLogin(t *testing.T) {
 	req.AddCookie(cookie)
 	res, err = http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	res.Body.Close()
+	defer res.Body.Close()
 	assert.Equal(t, http.StatusAccepted, res.StatusCode)
+
+	// Wait for the background scan to finish before teardown so the
+	// test's temp dir can be removed cleanly.
+	var job struct {
+		ID int64 `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(res.Body).Decode(&job))
+	waitForJob(t, srv, cookie, job.ID)
+}
+
+// waitForJob polls GET /api/scan/{id} until the scan finishes.
+func waitForJob(t *testing.T, srv *httptest.Server, cookie *http.Cookie, id int64) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/scan/"+itoa(id), nil)
+		req.AddCookie(cookie)
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		var payload struct {
+			FinishedAt *time.Time `json:"finished_at"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		r.Body.Close()
+		if payload.FinishedAt != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("scan %d did not finish in time", id)
 }
 
 func TestAuth_AdminOnlyUsers(t *testing.T) {

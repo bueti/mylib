@@ -38,6 +38,10 @@
 		<a href="/"><h1>mylib</h1></a>
 	</div>
 	{#if session.user}
+		<nav>
+			<a href="/">Books</a>
+			<a href="/collections">Collections</a>
+		</nav>
 		<div class="user">
 			<span>{session.user.username}{session.user.role === 'admin' ? ' · admin' : ''}</span>
 			<button onclick={logout}>Sign out</button>
@@ -72,6 +76,19 @@
 		margin: 0;
 		font-size: 1.25rem;
 		letter-spacing: 0.02em;
+	}
+	nav {
+		display: flex;
+		gap: 1.5rem;
+		margin-left: 2rem;
+		flex: 1;
+	}
+	nav a {
+		color: #bbb;
+		font-size: 0.875rem;
+	}
+	nav a:hover {
+		color: #fff;
 	}
 	.user {
 		display: flex;

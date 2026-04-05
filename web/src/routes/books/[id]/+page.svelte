@@ -1,10 +1,20 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { client, type Book } from '$lib/api/client';
+	import {
+		listCollections,
+		createCollection,
+		addBookToCollection,
+		type Collection
+	} from '$lib/api/collections';
 
 	let book = $state<Book | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let collections = $state<Collection[]>([]);
+	let collectionsMenuOpen = $state(false);
+	let addingTo = $state<number | null>(null);
+	let addStatus = $state<string | null>(null);
 
 	$effect(() => {
 		const id = Number(page.params.id);
@@ -14,7 +24,49 @@
 			return;
 		}
 		load(id);
+		void loadCollections();
 	});
+
+	async function loadCollections() {
+		try {
+			collections = await listCollections();
+		} catch {
+			// non-fatal — menu stays empty
+		}
+	}
+
+	async function addTo(c: Collection) {
+		if (!book || addingTo === c.id) return;
+		addingTo = c.id;
+		addStatus = null;
+		try {
+			await addBookToCollection(c.id, book.id);
+			addStatus = `Added to "${c.name}"`;
+			collectionsMenuOpen = false;
+			await loadCollections();
+		} catch (e) {
+			addStatus = e instanceof Error ? e.message : 'Failed to add';
+		} finally {
+			addingTo = null;
+			setTimeout(() => (addStatus = null), 3000);
+		}
+	}
+
+	async function newCollectionAndAdd() {
+		const name = prompt('New collection name');
+		if (!name || !book) return;
+		try {
+			const c = await createCollection(name.trim());
+			await addBookToCollection(c.id, book.id);
+			addStatus = `Added to "${c.name}"`;
+			collectionsMenuOpen = false;
+			await loadCollections();
+		} catch (e) {
+			addStatus = e instanceof Error ? e.message : 'Failed';
+		} finally {
+			setTimeout(() => (addStatus = null), 3000);
+		}
+	}
 
 	async function load(id: number) {
 		loading = true;
@@ -79,6 +131,24 @@
 			>
 				Download {book.format.toUpperCase()} · {formatSize(book.size_bytes)}
 			</a>
+
+			<div class="collections-menu">
+				<button class="collections-toggle" onclick={() => (collectionsMenuOpen = !collectionsMenuOpen)}>
+					Add to collection ▾
+				</button>
+				{#if collectionsMenuOpen}
+					<div class="menu">
+						{#each collections as c (c.id)}
+							<button onclick={() => addTo(c)} disabled={addingTo === c.id}>{c.name}</button>
+						{/each}
+						{#if collections.length > 0}<hr />{/if}
+						<button onclick={newCollectionAndAdd}>+ New collection…</button>
+					</div>
+				{/if}
+			</div>
+			{#if addStatus}
+				<p class="add-status">{addStatus}</p>
+			{/if}
 		</div>
 
 		<div class="meta-col">
@@ -202,6 +272,62 @@
 	}
 	.download-btn:hover {
 		background: #000;
+	}
+	.collections-menu {
+		position: relative;
+	}
+	.collections-toggle {
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		background: #fff;
+		color: #333;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		font-size: 0.8125rem;
+		cursor: pointer;
+		text-align: left;
+	}
+	.collections-toggle:hover {
+		border-color: #888;
+	}
+	.menu {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		margin-top: 0.25rem;
+		background: #fff;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		padding: 0.25rem 0;
+		z-index: 20;
+		max-height: 240px;
+		overflow-y: auto;
+	}
+	.menu button {
+		display: block;
+		width: 100%;
+		padding: 0.4rem 0.75rem;
+		background: none;
+		border: 0;
+		font-size: 0.8125rem;
+		text-align: left;
+		cursor: pointer;
+		color: #333;
+	}
+	.menu button:hover {
+		background: #f0f0f0;
+	}
+	.menu hr {
+		margin: 0.25rem 0;
+		border: 0;
+		border-top: 1px solid #eee;
+	}
+	.add-status {
+		margin: 0.25rem 0 0;
+		font-size: 0.75rem;
+		color: #0366d6;
 	}
 	.meta-col h2 {
 		margin: 0 0 0.25rem;
