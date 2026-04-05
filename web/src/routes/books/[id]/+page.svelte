@@ -66,6 +66,11 @@
 			{:else}
 				<div class="placeholder">{book.title.charAt(0)}</div>
 			{/if}
+			{#if book.format === 'epub' || book.format === 'pdf'}
+				<a class="read-btn" href="/books/{book.id}/read">
+					Read in browser
+				</a>
+			{/if}
 			<a
 				class="download-btn"
 				href="/api/books/{book.id}/file"
@@ -174,16 +179,26 @@
 		background: #f0f0f0;
 		border-radius: 4px;
 	}
+	.read-btn,
 	.download-btn {
 		display: inline-block;
 		padding: 0.625rem 1rem;
-		background: #222;
-		color: #fff;
 		text-align: center;
 		text-decoration: none;
 		border-radius: 4px;
 		font-size: 0.875rem;
 		font-weight: 500;
+	}
+	.read-btn {
+		background: #0366d6;
+		color: #fff;
+	}
+	.read-btn:hover {
+		background: #0256b9;
+	}
+	.download-btn {
+		background: #222;
+		color: #fff;
 	}
 	.download-btn:hover {
 		background: #000;

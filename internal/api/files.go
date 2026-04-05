@@ -77,8 +77,14 @@ func registerFileRoutes(r chi.Router, d Deps) {
 			return
 		}
 		w.Header().Set("ETag", `"`+b.ContentHash+`"`)
+		// Browser viewers (PDF iframe, epub.js fetch) need the bytes
+		// served inline; the default for downloads is attachment.
+		disposition := "attachment"
+		if req.URL.Query().Get("inline") == "1" {
+			disposition = "inline"
+		}
 		w.Header().Set("Content-Disposition",
-			`attachment; filename="`+safeFilename(b.Title, b.Format)+`"`)
+			disposition+`; filename="`+safeFilename(b.Title, b.Format)+`"`)
 		w.Header().Set("Content-Type", contentTypeFor(b.Format))
 		http.ServeContent(w, req, filepath.Base(b.Path), st.ModTime(), f)
 	})
