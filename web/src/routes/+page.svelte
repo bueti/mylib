@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { client } from '$lib/api/client';
-	import type { Book } from '$lib/api/schema';
+	import { client, type Book } from '$lib/api/client';
 
 	let query = $state('');
 	let books = $state<Book[]>([]);
@@ -21,10 +20,12 @@
 		loading = true;
 		error = null;
 		try {
-			const { data, error: err } = await client.GET('/books', {
+			const { data, error: err, response } = await client.GET('/api/books', {
 				params: { query: { q: q || undefined, limit: 60, sort: '-added' } }
 			});
-			if (err) throw new Error(String(err));
+			if (err) {
+				throw new Error(err.detail || response.statusText);
+			}
 			books = data?.books ?? [];
 			total = data?.total ?? 0;
 		} catch (e) {
@@ -59,7 +60,7 @@
 	<ul class="grid">
 		{#each books as book (book.id)}
 			<li class="card">
-				<a href="/api/books/{book.id}/file" class="cover">
+				<a href="/api/books/{book.id}/file" class="cover" data-sveltekit-reload download>
 					{#if book.has_cover}
 						<img src="/api/books/{book.id}/cover" alt="" loading="lazy" />
 					{:else}
@@ -69,7 +70,7 @@
 				<div class="meta">
 					<div class="title" title={book.title}>{book.title}</div>
 					<div class="authors">
-						{book.authors.map((a) => a.name).join(', ') || '—'}
+						{(book.authors ?? []).map((a) => a.name).join(', ') || '—'}
 					</div>
 				</div>
 			</li>

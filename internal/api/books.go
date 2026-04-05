@@ -134,7 +134,8 @@ func registerBooks(api huma.API, d Deps) {
 	})
 }
 
-// toBookDTO projects a library.Book onto the wire type.
+// toBookDTO projects a library.Book onto the wire type. Slice fields
+// are always non-nil so JSON clients get [] instead of null.
 func toBookDTO(b *library.Book) BookDTO {
 	out := BookDTO{
 		ID:          b.ID,
@@ -149,10 +150,12 @@ func toBookDTO(b *library.Book) BookDTO {
 		PublishedAt: b.PublishedAt,
 		Format:      b.Format,
 		SizeBytes:   b.SizeBytes,
-		Tags:        b.Tags,
+		Tags:        []string{},
+		Authors:     []AuthorDTO{},
 		HasCover:    b.CoverPath != "",
 		AddedAt:     b.AddedAt,
 	}
+	out.Tags = append(out.Tags, b.Tags...)
 	for _, a := range b.Authors {
 		out.Authors = append(out.Authors, AuthorDTO{ID: a.ID, Name: a.Name, SortName: a.SortName})
 	}
