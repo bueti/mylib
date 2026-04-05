@@ -332,13 +332,22 @@
 		color: #aaa;
 		background: #f0f0f0;
 	}
+	.meta {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		min-width: 0;
+	}
 	.title {
 		font-weight: 600;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 		color: inherit;
 		text-decoration: none;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		line-height: 1.3;
 	}
 	.title:hover {
 		color: #0366d6;
@@ -346,5 +355,8 @@
 	.authors {
 		color: #666;
 		font-size: 0.875rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 </style>
