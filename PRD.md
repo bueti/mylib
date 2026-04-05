@@ -69,16 +69,67 @@ collection spread across folders, wanting a unified catalog.
 - **Covers:** extracted cover thumbnails cached on disk; served with
   long-lived ETags.
 
-### 5.2 Post-MVP
+### 5.2 v0.2 — "Multi-user & resume reading"
 
-- External metadata providers (Google Books, Open Library) with per-book
-  "refresh metadata" action.
-- Format conversion via Calibre's `ebook-convert` if available on PATH.
+The core gap after v0.1 is that reading progress lives in localStorage
+and there are no user accounts. v0.2 closes both in one coherent release
+so progress, collections, and favorites are meaningful across devices.
+
+**Must-ship**
+- **Local auth.** Username + bcrypt password, signed-cookie sessions,
+  admin vs. reader roles, first-run admin bootstrap. All write and
+  per-user endpoints require a session.
+- **Server-side reading progress.** Per-user, per-book: position
+  (CFI for EPUB, page for PDF), percent, updated_at, finished flag.
+  Reader saves debounced every ~5s and on chapter change; resumes on
+  open. Migrates existing localStorage CFIs on first login.
+  - `GET /api/books/{id}/progress`, `PUT /api/books/{id}/progress`.
+  - `GET /api/progress/recent` — user's recently-read for a "Continue
+    reading" row on the home page.
+- **Collections.** Per-user named groupings (e.g. "2026 reading list").
+  A book can belong to many. Add/remove from the detail page.
+  - `GET/POST /api/collections`, `POST /api/collections/{id}/books/{book_id}`.
+- **Scan UX.** `fsnotify` watcher picks up new files instantly; SSE
+  endpoint `GET /api/scan/{id}/events` streams live counts so the
+  Rescan button shows real progress instead of polling.
+
+**Should-ship**
+- **Duplicate detection.** Surface exact-match (same content_hash) and
+  probable-match (same ISBN or near-duplicate fuzzy title) in an admin
+  view so users can manually resolve.
+- **Reader polish.** EPUB reader gains a TOC sidebar, font-size +
+  theme (light/sepia/dark), and remembers per-book preferences.
+
+**Deferred to v0.3+**
+- External metadata providers (Google Books / Open Library) with a
+  per-book "refresh metadata" action.
+- Format conversion via Calibre's `ebook-convert`.
 - Send-to-Kindle / send-to-device email.
-- Browser reader (epub.js / PDF.js) with bookmarks and highlights.
-- Duplicate detection (same ISBN or near-identical content hash).
-- Multi-library support (e.g., "Fiction", "Technical", with separate roots).
+- Multi-library support (separate roots with names and permissions).
 - OIDC / reverse-proxy auth.
+- Highlights, bookmarks, notes in the reader.
+- PDF first-page thumbnail generation for missing covers.
+
+### 5.3 v0.2 success criteria
+
+- A fresh install completes first-run setup (create admin → log in →
+  point at a library → browse) in under 2 minutes.
+- Two users on the same instance see independent progress, collections,
+  and "Continue reading" rows.
+- Opening a book on device A, reading to chapter 3, then opening it on
+  device B resumes at chapter 3 within one second of page load.
+- Dropping a new EPUB into the library root makes it appear in the UI
+  within 5 seconds (fsnotify-triggered scan).
+- Existing v0.1 localStorage progress is migrated on first login, not
+  lost.
+
+### 5.4 v0.2 non-goals
+
+- Sharing reading lists or progress between users.
+- Sync with external services (Goodreads, Storygraph, Calibre server).
+- Mobile app.
+- Per-collection ACLs — collections are owned by a single user.
+- Migrating to Postgres. SQLite remains the only supported store.
 
 ## 6. Architecture
 
@@ -249,8 +300,3 @@ MYLIB_LOG_LEVEL=info
 - **SvelteKit adapter:** `adapter-static` (ship the SPA as assets served
   by the Go binary via `embed.FS`) vs. `adapter-node` (separate process,
   SSR available). Leaning `adapter-static` for single-binary deploys.
-
-```
-
-```
-
