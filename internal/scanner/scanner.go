@@ -31,11 +31,80 @@ type Scanner struct {
 
 	mu       sync.Mutex
 	inFlight int64 // job id; 0 when idle
+
+	// subscribers is a best-effort broadcast target for live job
+	// updates (used by SSE). Each subscriber gets a buffered channel;
+	// slow subscribers drop frames rather than blocking the scan.
+	subMu   sync.Mutex
+	subs    map[int64][]chan library.ScanJob
+	lastJob map[int64]library.ScanJob
 }
 
 // New builds a Scanner. dataDir is where covers are written.
 func New(store *library.Store, roots []string, coverCache *covers.Cache) *Scanner {
-	return &Scanner{store: store, roots: roots, covers: coverCache}
+	return &Scanner{
+		store: store, roots: roots, covers: coverCache,
+		subs:    make(map[int64][]chan library.ScanJob),
+		lastJob: make(map[int64]library.ScanJob),
+	}
+}
+
+// Subscribe returns a channel that will receive scan-job snapshots
+// for the given job id, including a final snapshot when the scan
+// finishes. The channel is closed when the scan ends or the caller
+// calls the returned cancel function.
+func (s *Scanner) Subscribe(jobID int64) (<-chan library.ScanJob, func()) {
+	ch := make(chan library.ScanJob, 4)
+	s.subMu.Lock()
+	s.subs[jobID] = append(s.subs[jobID], ch)
+	// Push the latest known snapshot so late subscribers see state
+	// even if no new events arrive before completion.
+	if last, ok := s.lastJob[jobID]; ok {
+		select {
+		case ch <- last:
+		default:
+		}
+	}
+	s.subMu.Unlock()
+	cancel := func() { s.unsubscribe(jobID, ch) }
+	return ch, cancel
+}
+
+func (s *Scanner) unsubscribe(jobID int64, ch chan library.ScanJob) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	subs := s.subs[jobID]
+	for i, c := range subs {
+		if c == ch {
+			s.subs[jobID] = append(subs[:i], subs[i+1:]...)
+			close(ch)
+			return
+		}
+	}
+}
+
+func (s *Scanner) broadcast(jobID int64, snap library.ScanJob) {
+	s.subMu.Lock()
+	s.lastJob[jobID] = snap
+	for _, ch := range s.subs[jobID] {
+		select {
+		case ch <- snap:
+		default:
+			// subscriber is slow — drop the frame
+		}
+	}
+	s.subMu.Unlock()
+}
+
+func (s *Scanner) closeSubs(jobID int64) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	for _, ch := range s.subs[jobID] {
+		close(ch)
+	}
+	delete(s.subs, jobID)
+	// Keep lastJob around briefly for late subscribers.
+	delete(s.lastJob, jobID)
 }
 
 // ScanAll runs a full scan across all configured roots and returns
@@ -70,8 +139,25 @@ func (s *Scanner) runScan(ctx context.Context, jobID int64) {
 		s.mu.Unlock()
 	}()
 
-	job := library.ScanJob{Status: "done"}
+	job := library.ScanJob{ID: jobID, Status: "running"}
 	start := time.Now()
+
+	// Emit periodic snapshots while we work.
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(500 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				s.broadcast(jobID, job)
+			}
+		}
+	}()
+
+	job.Status = "done"
 	for _, root := range s.roots {
 		if err := s.scanRoot(ctx, root, &job); err != nil {
 			slog.Error("scan root failed", "root", root, "err", err)
@@ -80,6 +166,8 @@ func (s *Scanner) runScan(ctx context.Context, jobID int64) {
 			break
 		}
 	}
+	close(done)
+
 	if err := s.store.FinishScanJob(ctx, jobID, job); err != nil {
 		slog.Error("finish scan job", "err", err)
 	}
@@ -88,6 +176,9 @@ func (s *Scanner) runScan(ctx context.Context, jobID int64) {
 		"seen", job.FilesSeen, "added", job.FilesAdded,
 		"updated", job.FilesUpdated, "removed", job.FilesRemoved,
 	)
+	// Final snapshot + close subscribers.
+	s.broadcast(jobID, job)
+	s.closeSubs(jobID)
 }
 
 // scanRoot walks one root directory.

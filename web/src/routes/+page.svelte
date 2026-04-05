@@ -128,24 +128,31 @@
 		try {
 			const { data: job, error: err } = await client.POST('/api/scan');
 			if (err || !job) throw new Error('Failed to start scan');
-			let current = job;
-			// Poll until the job finishes.
-			while (current.status === 'running') {
-				await new Promise((r) => setTimeout(r, 500));
-				const { data: polled } = await client.GET('/api/scan/{id}', {
-					params: { path: { id: current.id } }
+			// Stream live job updates via SSE instead of polling.
+			await new Promise<void>((resolve) => {
+				const es = new EventSource(`/api/scan/${job.id}/events`);
+				es.addEventListener('job', (e) => {
+					const snap = JSON.parse((e as MessageEvent).data);
+					if (snap.status === 'running') {
+						scanMessage = `Scanning… ${snap.files_seen} seen, ${snap.files_added} new`;
+					} else if (snap.status === 'done') {
+						scanMessage = `Scan complete · +${snap.files_added} / ~${snap.files_updated} / −${snap.files_removed}`;
+						es.close();
+						resolve();
+					} else {
+						scanMessage = 'Scan failed: ' + (snap.error || 'unknown');
+						es.close();
+						resolve();
+					}
 				});
-				if (!polled) break;
-				current = polled;
-				scanMessage = `Scanning… ${current.files_seen} seen, ${current.files_added} new`;
-			}
-			if (current.status === 'done') {
-				scanMessage = `Scan complete · +${current.files_added} / ~${current.files_updated} / −${current.files_removed}`;
-			} else {
-				scanMessage = 'Scan failed: ' + (current.error || 'unknown');
-			}
-			// Refresh the list.
+				es.onerror = () => {
+					es.close();
+					resolve();
+				};
+			});
+			// Refresh the list once the scan finishes.
 			load({ q: query, author: activeAuthor?.id, series: activeSeries?.id, tag: activeTag, format: activeFormat });
+			void loadRecent();
 		} catch (e) {
 			scanMessage = e instanceof Error ? e.message : 'Scan failed';
 		} finally {

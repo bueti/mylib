@@ -19,6 +19,7 @@ import (
 	"github.com/bueti/mylib/internal/library"
 	"github.com/bueti/mylib/internal/opds"
 	"github.com/bueti/mylib/internal/scanner"
+	"github.com/bueti/mylib/internal/watcher"
 	"github.com/bueti/mylib/internal/webui"
 	"github.com/go-chi/chi/v5"
 )
@@ -82,6 +83,18 @@ func run() error {
 		Addr:              cfg.Listen,
 		Handler:           root,
 		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	// Start the fsnotify watcher so new files trigger scans in
+	// near-real-time, on top of the periodic ticker fallback.
+	if w, err := watcher.New(sc, cfg.LibraryRoots, 2*time.Second); err == nil {
+		go func() {
+			if err := w.Run(ctx); err != nil {
+				slog.Warn("watcher stopped", "err", err)
+			}
+		}()
+	} else {
+		slog.Warn("could not start fs watcher", "err", err)
 	}
 
 	// Start periodic scans in the background.

@@ -46,6 +46,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerProgress(api, deps)
 	registerCollections(api, deps)
 	registerFileRoutes(r, deps)
+	registerSSE(r, deps)
 
 	return r
 }
