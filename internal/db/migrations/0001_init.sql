@@ -79,7 +79,7 @@ CREATE TABLE scan_jobs (
 -- triggers on books so the index stays in sync without duplicating data.
 CREATE VIRTUAL TABLE books_fts USING fts5(
     title, subtitle, authors, series, description, tags,
-    content='', tokenize='unicode61'
+    content='', contentless_delete=1, tokenize='unicode61'
 );
 -- +goose StatementEnd
 
