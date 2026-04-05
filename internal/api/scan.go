@@ -43,7 +43,7 @@ func registerScan(api huma.API, d Deps) {
 	huma.Register(api, huma.Operation{
 		OperationID:   "trigger-scan",
 		Method:        http.MethodPost,
-		Path:          "/scan",
+		Path:          "/api/scan",
 		Summary:       "Start (or join) a library scan",
 		Tags:          []string{"scan"},
 		DefaultStatus: http.StatusAccepted,
@@ -62,7 +62,7 @@ func registerScan(api huma.API, d Deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "get-scan",
 		Method:      http.MethodGet,
-		Path:        "/scan/{id}",
+		Path:        "/api/scan/{id}",
 		Summary:     "Get a scan job",
 		Tags:        []string{"scan"},
 	}, func(ctx context.Context, in *GetScanInput) (*GetScanOutput, error) {

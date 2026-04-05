@@ -18,6 +18,7 @@ import (
 	"github.com/bueti/mylib/internal/library"
 	"github.com/bueti/mylib/internal/opds"
 	"github.com/bueti/mylib/internal/scanner"
+	"github.com/bueti/mylib/internal/webui"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -58,11 +59,18 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Mount the API router and OPDS feed on one chi router.
-	apiHandler := api.NewRouter(api.Deps{Store: store, Scanner: sc, Covers: coverCache})
+	// All API routes live under /api/... already, OPDS under /opds, and
+	// the embedded SPA serves / with an SPA fallback for unknown paths.
+	apiRouter := api.NewRouter(api.Deps{Store: store, Scanner: sc, Covers: coverCache})
 	root := chi.NewRouter()
-	root.Mount("/", apiHandler)
+	// Delegate any /api/* or /opds* requests to their handlers; fall
+	// through to the SPA for everything else.
+	root.Handle("/api/*", apiRouter)
 	opds.Mount(root, &opds.Handler{Store: store})
+	spa := webui.Handler()
+	root.HandleFunc("/*", func(w http.ResponseWriter, r *http.Request) {
+		spa.ServeHTTP(w, r)
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,

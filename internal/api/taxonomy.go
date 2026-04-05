@@ -32,7 +32,7 @@ func registerTaxonomy(api huma.API, d Deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "list-authors",
 		Method:      http.MethodGet,
-		Path:        "/authors",
+		Path:        "/api/authors",
 		Summary:     "List all authors",
 		Tags:        []string{"taxonomy"},
 	}, func(ctx context.Context, _ *struct{}) (*ListAuthorsOutput, error) {
@@ -51,7 +51,7 @@ func registerTaxonomy(api huma.API, d Deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "list-series",
 		Method:      http.MethodGet,
-		Path:        "/series",
+		Path:        "/api/series",
 		Summary:     "List all series",
 		Tags:        []string{"taxonomy"},
 	}, func(ctx context.Context, _ *struct{}) (*ListSeriesOutput, error) {
@@ -70,7 +70,7 @@ func registerTaxonomy(api huma.API, d Deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "list-tags",
 		Method:      http.MethodGet,
-		Path:        "/tags",
+		Path:        "/api/tags",
 		Summary:     "List all tags",
 		Tags:        []string{"taxonomy"},
 	}, func(ctx context.Context, _ *struct{}) (*ListTagsOutput, error) {

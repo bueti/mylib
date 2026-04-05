@@ -6,8 +6,8 @@ const config = {
 	preprocess: vitePreprocess(),
 	kit: {
 		adapter: adapter({
-			pages: 'build',
-			assets: 'build',
+			pages: '../internal/webui/dist',
+			assets: '../internal/webui/dist',
 			fallback: 'index.html',
 			precompress: false,
 			strict: true

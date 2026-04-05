@@ -80,7 +80,7 @@ func registerBooks(api huma.API, d Deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "list-books",
 		Method:      http.MethodGet,
-		Path:        "/books",
+		Path:        "/api/books",
 		Summary:     "List books",
 		Tags:        []string{"books"},
 	}, func(ctx context.Context, in *ListBooksInput) (*ListBooksOutput, error) {
@@ -119,7 +119,7 @@ func registerBooks(api huma.API, d Deps) {
 	huma.Register(api, huma.Operation{
 		OperationID: "get-book",
 		Method:      http.MethodGet,
-		Path:        "/books/{id}",
+		Path:        "/api/books/{id}",
 		Summary:     "Get book by id",
 		Tags:        []string{"books"},
 	}, func(ctx context.Context, in *GetBookInput) (*GetBookOutput, error) {
