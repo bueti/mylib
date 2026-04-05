@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { session, whoami, logout } from '$lib/api/session';
+	import { migrateLocalProgress } from '$lib/api/migrate-local';
 
 	let { children } = $props();
 
@@ -11,6 +12,11 @@
 		// Redirect to /login if we're on a protected route and not signed in.
 		if (!session.user && !isPublicRoute(page.url.pathname)) {
 			await goto('/login');
+			return;
+		}
+		if (session.user) {
+			// Best-effort one-shot migration of v0.1 localStorage progress.
+			void migrateLocalProgress();
 		}
 	});
 

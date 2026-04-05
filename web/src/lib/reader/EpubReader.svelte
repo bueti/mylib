@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import ePub from 'epubjs';
+	import { loadProgress, makeSaver } from './progress';
 
 	let { bookId, title }: { bookId: number; title: string } = $props();
 
@@ -18,13 +19,15 @@
 
 	let resizeObserver: ResizeObserver | undefined;
 
+	let saver: ReturnType<typeof makeSaver> | undefined;
+
 	onMount(async () => {
-		// Capture the initial bookId (props are reactive, but we only
-		// run onMount once — this component is remounted per book).
-		const id = bookId;
-		const storageKey = `mylib.read.${id}.cfi`;
+		// Props are reactive but this component is remounted per book,
+		// so capturing bookId once is fine.
+		const bid = bookId;
+		saver = makeSaver(bid);
 		try {
-			const res = await fetch(`/api/books/${id}/file?inline=1`);
+			const res = await fetch(`/api/books/${bid}/file?inline=1`);
 			if (!res.ok) throw new Error('HTTP ' + res.status);
 			const buf = await res.arrayBuffer();
 
@@ -50,8 +53,13 @@
 				// non-fatal — pagination still works without precise locations
 			});
 
-			const saved = localStorage.getItem(storageKey);
-			await rendition.display(saved ?? undefined);
+			// Prefer server-side progress; fall back to any legacy
+			// localStorage CFI from v0.1 so users don't lose their place.
+			const server = await loadProgress(bid);
+			const localKey = `mylib.read.${bid}.cfi`;
+			const local = localStorage.getItem(localKey);
+			const startCfi = server?.position ?? local ?? undefined;
+			await rendition.display(startCfi);
 
 			// Re-paginate whenever the viewport resizes. Without this
 			// the first layout can be wrong (before flex settles) and
@@ -79,11 +87,7 @@
 					atEnd = !!loc.atEnd;
 					const pct = loc.start.percentage ? Math.round(loc.start.percentage * 100) : 0;
 					pageInfo = `${loc.start.displayed.page}/${loc.start.displayed.total} · ${pct}%`;
-					try {
-						localStorage.setItem(storageKey, loc.start.cfi);
-					} catch {
-						// ignore quota / private mode
-					}
+					saver?.save({ position: loc.start.cfi, percent: loc.start.percentage ?? 0 });
 				}
 			);
 
@@ -96,6 +100,7 @@
 
 	onDestroy(() => {
 		try {
+			saver?.flush();
 			resizeObserver?.disconnect();
 			rendition?.destroy();
 			book?.destroy();
@@ -103,6 +108,10 @@
 			// ignore shutdown errors
 		}
 	});
+
+	function onBeforeUnload() {
+		saver?.flush();
+	}
 
 	function next() {
 		rendition?.next();
@@ -122,7 +131,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onbeforeunload={onBeforeUnload} />
 
 <div class="reader">
 	{#if loading}

@@ -1,7 +1,13 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { client, type Book } from '$lib/api/client';
+
+	interface RecentEntry {
+		book: Book;
+		progress: { position: string; percent: number };
+	}
 
 	// Filter state is derived from URL search params so links are
 	// shareable and the browser back button restores prior views.
@@ -15,6 +21,22 @@
 	let total = $state(0);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+	let recent = $state<RecentEntry[]>([]);
+
+	onMount(async () => {
+		await loadRecent();
+	});
+
+	async function loadRecent() {
+		try {
+			const res = await fetch('/api/progress/recent?limit=8', { credentials: 'same-origin' });
+			if (!res.ok) return;
+			const data = await res.json();
+			recent = (data?.entries ?? []) as RecentEntry[];
+		} catch {
+			// ignore — section stays hidden
+		}
+	}
 
 	// Rescan state.
 	let scanning = $state(false);
@@ -151,6 +173,32 @@
 	<p class="scan-msg">{scanMessage}</p>
 {/if}
 
+{#if recent.length > 0}
+	<section class="continue">
+		<h2>Continue reading</h2>
+		<ul class="row">
+			{#each recent as entry (entry.book.id)}
+				<li>
+					<a href="/books/{entry.book.id}/read" class="recent-card">
+						{#if entry.book.has_cover}
+							<img src="/api/books/{entry.book.id}/cover" alt="" loading="lazy" />
+						{:else}
+							<div class="placeholder">{entry.book.title.charAt(0)}</div>
+						{/if}
+						<div class="progress-bar">
+							<div
+								class="progress-fill"
+								style:width="{Math.max(2, Math.round(entry.progress.percent * 100))}%"
+							></div>
+						</div>
+						<div class="recent-title" title={entry.book.title}>{entry.book.title}</div>
+					</a>
+				</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
+
 {#if activeAuthor || activeSeries || activeTag || activeFormat}
 	<div class="chips">
 		<span class="chips-label">Filters:</span>
@@ -244,6 +292,63 @@
 	.count {
 		color: #666;
 		font-size: 0.875rem;
+	}
+	.continue {
+		margin: 0 0 2rem;
+	}
+	.continue h2 {
+		font-size: 0.9375rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #666;
+		margin: 0 0 0.75rem;
+	}
+	.row {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+		gap: 1rem;
+	}
+	.recent-card {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		text-decoration: none;
+		color: inherit;
+	}
+	.recent-card img,
+	.recent-card .placeholder {
+		width: 100%;
+		aspect-ratio: 2 / 3;
+		object-fit: cover;
+		background: #eee;
+		border-radius: 4px;
+	}
+	.recent-card .placeholder {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 2rem;
+		font-weight: 700;
+		color: #aaa;
+	}
+	.progress-bar {
+		height: 3px;
+		background: #e0e0e0;
+		border-radius: 2px;
+		overflow: hidden;
+	}
+	.progress-fill {
+		height: 100%;
+		background: #0366d6;
+	}
+	.recent-title {
+		font-size: 0.8125rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.scan-msg {
 		margin: 0 0 1rem;
