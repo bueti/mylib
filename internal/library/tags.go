@@ -1,6 +1,9 @@
 package library
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // RenormalizeTags re-processes all book tags through a normalizer
 // function. Tags that normalize to empty or duplicate are removed.
@@ -37,6 +40,49 @@ func (s *Store) CleanOrphanTags(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// ApplyTagMerges replaces tags across all books according to a merge
+// map (old name → canonical name). Returns the number of books updated.
+func (s *Store) ApplyTagMerges(ctx context.Context, merges map[string]string) (int, error) {
+	if len(merges) == 0 {
+		return 0, nil
+	}
+	books, _, err := s.ListBooks(ctx, BookFilter{Limit: 50_000})
+	if err != nil {
+		return 0, err
+	}
+	updated := 0
+	for _, b := range books {
+		if len(b.Tags) == 0 {
+			continue
+		}
+		changed := false
+		seen := make(map[string]struct{})
+		var newTags []string
+		for _, t := range b.Tags {
+			if canon, ok := merges[t]; ok {
+				t = canon
+				changed = true
+			}
+			lower := strings.ToLower(t)
+			if _, dup := seen[lower]; dup {
+				changed = true
+				continue
+			}
+			seen[lower] = struct{}{}
+			newTags = append(newTags, t)
+		}
+		if !changed {
+			continue
+		}
+		b.Tags = newTags
+		if _, err := s.UpsertBook(ctx, b); err != nil {
+			return updated, err
+		}
+		updated++
+	}
+	return updated, nil
 }
 
 func tagsEqual(a, b []string) bool {
