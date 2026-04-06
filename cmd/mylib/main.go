@@ -77,7 +77,14 @@ func run() error {
 
 	// All API routes live under /api/... already, OPDS under /opds, and
 	// the embedded SPA serves / with an SPA fallback for unknown paths.
-	apiRouter := api.NewRouter(api.Deps{Store: store, Scanner: sc, Covers: coverCache, Enricher: enricher})
+	apiRouter := api.NewRouter(api.Deps{
+		Store:       store,
+		Scanner:     sc,
+		Covers:      coverCache,
+		Enricher:    enricher,
+		LibraryRoot: cfg.LibraryRoots[0],
+		EnrichQueue: enrichQueue,
+	})
 	root := chi.NewRouter()
 	// Delegate any /api/* or /opds* requests to their handlers; fall
 	// through to the SPA for everything else.

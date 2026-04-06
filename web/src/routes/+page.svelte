@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import type { Book } from '$lib/api/client';
+	import UploadDialog from '$lib/UploadDialog.svelte';
 
 	interface RecentEntry {
 		book: Book;
@@ -35,6 +36,7 @@
 	// Rescan state.
 	let scanning = $state(false);
 	let scanMessage = $state<string | null>(null);
+	let uploadOpen = $state(false);
 
 	onMount(async () => {
 		await Promise.all([loadRecent(), loadTags()]);
@@ -258,6 +260,7 @@
 				<option value="-title">Title Z–A</option>
 				<option value="added">Oldest first</option>
 			</select>
+			<button class="upload" onclick={() => (uploadOpen = true)}>Upload</button>
 			<button onclick={rescan} disabled={scanning} class="rescan">
 				{scanning ? 'Scanning…' : 'Rescan'}
 			</button>
@@ -370,6 +373,11 @@
 	</div>
 </div>
 
+<UploadDialog bind:open={uploadOpen} onDone={() => {
+	load({ q: query, author: activeAuthor?.id, series: activeSeries?.id, tags: activeTags, format: activeFormat, sort: activeSort });
+	void loadTags();
+}} />
+
 <style>
 	.layout {
 		display: flex;
@@ -473,6 +481,18 @@
 		border-radius: 4px;
 		font-size: 0.875rem;
 		background: #fff;
+	}
+	.upload {
+		padding: 0.5rem 1rem;
+		background: #0366d6;
+		color: #fff;
+		border: 0;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		cursor: pointer;
+	}
+	.upload:hover {
+		background: #0256b9;
 	}
 	.rescan {
 		padding: 0.5rem 1rem;

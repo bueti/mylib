@@ -16,10 +16,12 @@ import (
 
 // Deps bundles the handler dependencies.
 type Deps struct {
-	Store    *library.Store
-	Scanner  *scanner.Scanner
-	Covers   *covers.Cache
-	Enricher *enrich.Enricher
+	Store       *library.Store
+	Scanner     *scanner.Scanner
+	Covers      *covers.Cache
+	Enricher    *enrich.Enricher
+	LibraryRoot string       // first library root — uploads land here
+	EnrichQueue chan<- int64 // async enrichment queue (may be nil)
 }
 
 // NewRouter returns a chi router exposing the mylib HTTP API. All
@@ -53,6 +55,9 @@ func NewRouter(deps Deps) http.Handler {
 	registerDeleteBook(r, deps.Store)
 	if deps.Enricher != nil {
 		registerEnrich(r, deps.Store, deps.Enricher)
+	}
+	if deps.LibraryRoot != "" {
+		registerUpload(r, deps)
 	}
 
 	return r
