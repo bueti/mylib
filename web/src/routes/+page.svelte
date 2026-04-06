@@ -106,7 +106,7 @@
 			if (f.q) params.set('q', f.q);
 			if (f.author) params.set('author_id', String(f.author));
 			if (f.series) params.set('series_id', String(f.series));
-			for (const t of f.tags) params.append('tag', t);
+			if (f.tags.length > 0) params.set('tag', f.tags.join(','));
 			if (f.format) params.set('format', f.format);
 			params.set('sort', f.sort);
 			params.set('limit', '60');
