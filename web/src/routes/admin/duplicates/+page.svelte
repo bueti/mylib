@@ -21,6 +21,7 @@
 	let error = $state<string | null>(null);
 	let actionRunning = $state('');
 	let actionResult = $state<string | null>(null);
+	let deleting = $state<number | null>(null);
 
 	async function rescanMetadata() {
 		actionRunning = 'rescan';
@@ -75,6 +76,29 @@
 	function formatSize(bytes: number): string {
 		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 	}
+
+	async function deleteBook(bookId: number, deleteFile: boolean) {
+		const action = deleteFile ? 'Delete book and file from disk' : 'Remove from library (keep file)';
+		if (!confirm(`${action}? This cannot be undone.`)) return;
+		deleting = bookId;
+		try {
+			const q = deleteFile ? '?delete_file=1' : '';
+			const res = await fetch(`/api/books/${bookId}${q}`, {
+				method: 'DELETE',
+				credentials: 'same-origin'
+			});
+			if (!res.ok) throw new Error(await res.text());
+			// Remove from the local groups so the UI updates immediately.
+			for (const g of groups) {
+				g.books = g.books.filter((b) => b.id !== bookId);
+			}
+			groups = groups.filter((g) => g.books.length > 1);
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Delete failed');
+		} finally {
+			deleting = null;
+		}
+	}
 </script>
 
 <h2>Admin</h2>
@@ -121,6 +145,20 @@
 								{b.format.toUpperCase()} · {formatSize(b.size_bytes)}{#if b.isbn} · ISBN {b.isbn}{/if}
 							</div>
 							<div class="path">{b.path}</div>
+						</div>
+						<div class="actions">
+							<button
+								class="btn-remove"
+								disabled={deleting === b.id}
+								onclick={() => deleteBook(b.id, false)}
+								title="Remove from library but keep the file on disk"
+							>Remove</button>
+							<button
+								class="btn-delete"
+								disabled={deleting === b.id}
+								onclick={() => deleteBook(b.id, true)}
+								title="Remove from library AND delete the file from disk"
+							>Delete file</button>
 						</div>
 					</li>
 				{/each}
@@ -246,5 +284,41 @@
 		font-size: 0.75rem;
 		color: #888;
 		word-break: break-all;
+	}
+	.actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		flex-shrink: 0;
+	}
+	.btn-remove,
+	.btn-delete {
+		padding: 0.25rem 0.625rem;
+		border-radius: 3px;
+		font-size: 0.75rem;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.btn-remove {
+		background: #f5f5f5;
+		border: 1px solid #ccc;
+		color: #333;
+	}
+	.btn-remove:hover:not(:disabled) {
+		background: #eee;
+		border-color: #999;
+	}
+	.btn-delete {
+		background: #b00020;
+		border: 0;
+		color: #fff;
+	}
+	.btn-delete:hover:not(:disabled) {
+		background: #900018;
+	}
+	.btn-remove:disabled,
+	.btn-delete:disabled {
+		opacity: 0.5;
+		cursor: wait;
 	}
 </style>

@@ -50,6 +50,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerFileRoutes(r, deps)
 	registerSSE(r, deps)
 	registerAdmin(r, deps.Store, deps.Scanner)
+	registerDeleteBook(r, deps.Store)
 	if deps.Enricher != nil {
 		registerEnrich(r, deps.Store, deps.Enricher)
 	}
