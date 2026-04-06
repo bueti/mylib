@@ -95,6 +95,8 @@
 				resizeObserver.observe(container);
 			}
 
+			setupTouchNav();
+
 			rendition.on(
 				'relocated',
 				(loc: {
@@ -138,21 +140,37 @@
 		saver?.flush();
 	}
 
-	// Swipe navigation for touch devices.
-	let touchStartX = 0;
-	let touchStartY = 0;
-	function onTouchStart(e: TouchEvent) {
-		touchStartX = e.touches[0].clientX;
-		touchStartY = e.touches[0].clientY;
-	}
-	function onTouchEnd(e: TouchEvent) {
-		const dx = e.changedTouches[0].clientX - touchStartX;
-		const dy = e.changedTouches[0].clientY - touchStartY;
-		// Only trigger on horizontal swipes (|dx| > 50px, |dy| < |dx|).
-		if (Math.abs(dx) > 50 && Math.abs(dy) < Math.abs(dx)) {
-			if (dx < 0) next();
-			else prev();
-		}
+	// Touch/click navigation inside the epub.js iframe. Our outer
+	// swipe handlers can't work because the iframe captures all touch
+	// events. Instead we register directly on the rendition.
+	function setupTouchNav() {
+		if (!rendition) return;
+
+		// Swipe detection inside the iframe.
+		let startX = 0;
+		let startY = 0;
+		rendition.on('touchstart', (e: TouchEvent) => {
+			startX = e.touches[0].clientX;
+			startY = e.touches[0].clientY;
+		});
+		rendition.on('touchend', (e: TouchEvent) => {
+			const dx = e.changedTouches[0].clientX - startX;
+			const dy = e.changedTouches[0].clientY - startY;
+			if (Math.abs(dx) > 50 && Math.abs(dy) < Math.abs(dx)) {
+				if (dx < 0) next();
+				else prev();
+			}
+		});
+
+		// Tap zones: left 30% = prev, right 30% = next, middle = nothing.
+		rendition.on('click', (e: MouseEvent) => {
+			const wrapper = container;
+			if (!wrapper) return;
+			const width = wrapper.clientWidth;
+			const x = e.clientX - wrapper.getBoundingClientRect().left;
+			if (x < width * 0.3) prev();
+			else if (x > width * 0.7) next();
+		});
 	}
 
 	function next() {
@@ -263,8 +281,7 @@
 			<p class="status error">Error: {error}</p>
 		{/if}
 
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="viewport-wrap" ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
+		<div class="viewport-wrap">
 			<button class="nav nav-prev" onclick={prev} disabled={atStart} aria-label="Previous page">‹</button>
 			<div class="viewport" bind:this={container}></div>
 			<button class="nav nav-next" onclick={next} disabled={atEnd} aria-label="Next page">›</button>
