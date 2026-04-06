@@ -8,28 +8,29 @@ reading formats rather than audio. Users point the server at one or more
 directories on disk; the server scans, extracts metadata, and exposes a
 browsable, searchable collection via a typed HTTP API with generated clients.
 
+Ships as a single Go binary with an embedded Svelte 5 web UI and an OPDS 1.2
+feed for e-reader apps.
+
 ## 2. Goals
 
 - **Self-hosted, single binary.** Runs locally or on a home server with minimal
   configuration. SQLite by default; no external services required.
 - **Non-destructive.** Source files on disk are the source of truth. The server
   never moves, renames, or rewrites files unless explicitly told to.
-- **Typed API first.** Every endpoint is described in OpenAPI, generated
-  automatically by Huma. Clients (TypeScript web UI, Go CLI, others) are
-  generated from the spec — no hand-written client code.
+- **Typed API first.** Every endpoint is described in OpenAPI 3.1, generated
+  automatically by Huma. TypeScript client generated from the spec.
 - **Fast library operations.** Scans of 10k+ files complete in seconds on
   re-scan; full-text metadata search is sub-100ms.
 - **Multi-user with progress tracking.** Each user has their own reading
-  progress, bookmarks, and collections over a shared library.
+  progress, collections, and preferences over a shared library.
 
-## 3. Non-Goals (for v1)
+## 3. Non-Goals
 
 - Audiobook support (that's what Audiobookshelf is for).
-- In-browser reading UI. v1 ships download + OPDS; a reader can come later.
 - Social features (sharing, ratings, recommendations).
 - Cloud sync of user libraries across instances.
-- Mobile apps. Third-party OPDS clients (KOReader, Moon+ Reader) cover this.
 - DRM handling. Users are responsible for their own files.
+- Migrating to Postgres. SQLite remains the only supported store.
 
 ## 4. Users & Use Cases
 
@@ -38,98 +39,138 @@ collection spread across folders, wanting a unified catalog.
 
 **Use cases:**
 
-1. Point the server at `~/Books` and browse by author/series/tag in a web UI.
+1. Point the server at `~/Books` and browse by author/series/genre in a web UI.
 2. Search "Le Guin" and download an EPUB to a Kobo over the local network.
-3. Open a PDF in a reader, close it, reopen later and resume on the same page
-   from a different device.
+3. Open an EPUB in the browser reader, close it, reopen later on another device
+   and resume at the same page.
 4. Subscribe to the library's OPDS feed from KOReader on an e-ink device.
 5. Tag a subset of books as "2026 reading list" and filter by that tag.
+6. Upload new books directly from the browser without SSH access.
+7. Browse the library by genre (Fantasy, Science Fiction, Philosophy…) via an
+   auto-populated tag sidebar.
 
-## 5. Key Features
+## 5. Features — Shipped
 
-### 5.1 MVP (v0.1)
+### 5.1 Core library (v0.1)
 
-- **Library scanning:** recursive directory watch; detects new, modified, and
-  deleted files. Incremental rescans using mtime + size + content hash.
-- **Metadata extraction:**
-  - EPUB: parse OPF for title, authors, series, publisher, language, ISBN,
-    description, cover image.
-  - PDF: extract embedded XMP/Info metadata; fall back to filename heuristics.
-  - MOBI/AZW3: parse PalmDB headers for basic metadata.
-- **Metadata override:** per-book user edits stored alongside extracted data;
-  user edits always win.
-- **Browse & search:** by author, series, tag, format, date added, date
-  published. Full-text search over title/author/description (SQLite FTS5).
-- **Collections & tags:** user-defined groupings; a book can belong to many.
-- **Reading progress:** per-user, per-book current position (page or CFI) plus
-  last-read timestamp and a finished flag.
-- **Download:** direct file download and OPDS 1.2 catalog feed.
-- **Auth:** local username/password with bcrypt; sessions via signed cookies
-  or bearer tokens. Admin vs. reader roles.
-- **Covers:** extracted cover thumbnails cached on disk; served with
-  long-lived ETags.
+- **Library scanning.** Recursive directory walk; detects new, modified, and
+  deleted files. Incremental rescans using mtime + size. Content-hash-based
+  dedup (SHA-256 of first/last 64KB + length). Soft-deletes for removed files.
+- **Metadata extraction.**
+  - EPUB: parse OPF for title, authors, series (calibre:series), publisher,
+    language, ISBN, description, `dc:subject` genres, cover image.
+  - PDF: pdfcpu Info dictionary for title/author/keywords. First-page image
+    extraction for cover thumbnails.
+  - MOBI/AZW3: filename-heuristic fallback ("Author - Title.ext").
+- **Metadata editing.** `PATCH /api/books/{id}` for title, subtitle, authors,
+  series, tags, description, publisher, language, ISBN. Edit form on detail page.
+- **Browse & search.** By author, series, tag, format, collection, date added.
+  Full-text search over title/author/description/tags (SQLite FTS5). Multi-tag
+  OR filtering. Sort by title, date added, reverse.
+- **Thematic browsing.** Tag sidebar with book counts, sorted by frequency.
+  "Browse by genre" card section on the home page. Tags auto-populated from
+  embedded EPUB subjects and Open Library enrichment, normalized to canonical
+  genres (e.g. "Fiction, fantasy, general" → "Fantasy").
+- **Collections.** Per-user named groupings. CRUD API + UI for list, view,
+  add-to-collection from book detail page with inline new-collection prompt.
+- **Download.** Direct file download with Range + ETag support. Content-type
+  headers for epub/pdf/mobi/azw3.
+- **OPDS 1.2.** Root navigation, recent, by-author, by-series, search feeds.
+  Acquisition links to /api/books/{id}/file. Cover thumbnails.
+- **Covers.** Extracted from EPUB (cover-image property or meta cover id) and
+  PDF (largest first-page image). Cached on disk sharded by content hash.
+  Served with immutable Cache-Control + ETag.
 
-### 5.2 v0.2 — "Multi-user & resume reading"
+### 5.2 Auth & multi-user (v0.2)
 
-The core gap after v0.1 is that reading progress lives in localStorage
-and there are no user accounts. v0.2 closes both in one coherent release
-so progress, collections, and favorites are meaningful across devices.
+- **Local auth.** Username + bcrypt password. Server-side sessions (256-bit
+  random hex token) stored in SQLite. HttpOnly + SameSite=Lax cookies.
+  Admin bootstrap via `MYLIB_ADMIN_USER`/`MYLIB_ADMIN_PASSWORD` env vars on
+  first startup.
+- **Casbin RBAC.** Policy-driven authorization replacing ad-hoc middleware.
+  Two roles: admin (full access) and reader (can read/edit/upload/enrich but
+  not delete books or manage users). `Authorize(az, resource, action)`
+  middleware. `GET /api/auth/permissions` returns the user's effective
+  permission set so the frontend conditionally shows/hides UI elements.
+- **Server-side reading progress.** Per-user, per-book CFI (EPUB) or page
+  (PDF) position, percent, finished flag, theme/font-size preferences.
+  Debounced save (5s) + sendBeacon on unload. Cross-device resume.
+  "Continue reading" row on the home page.
+  localStorage migration from v0.1 on first login.
+- **Admin user management.** `POST /api/users` (create), `DELETE /api/users/{id}`,
+  `GET /api/users`. Login/logout UI. Can't delete the last admin.
 
-**Must-ship**
-- **Local auth.** Username + bcrypt password, signed-cookie sessions,
-  admin vs. reader roles, first-run admin bootstrap. All write and
-  per-user endpoints require a session.
-- **Server-side reading progress.** Per-user, per-book: position
-  (CFI for EPUB, page for PDF), percent, updated_at, finished flag.
-  Reader saves debounced every ~5s and on chapter change; resumes on
-  open. Migrates existing localStorage CFIs on first login.
-  - `GET /api/books/{id}/progress`, `PUT /api/books/{id}/progress`.
-  - `GET /api/progress/recent` — user's recently-read for a "Continue
-    reading" row on the home page.
-- **Collections.** Per-user named groupings (e.g. "2026 reading list").
-  A book can belong to many. Add/remove from the detail page.
-  - `GET/POST /api/collections`, `POST /api/collections/{id}/books/{book_id}`.
-- **Scan UX.** `fsnotify` watcher picks up new files instantly; SSE
-  endpoint `GET /api/scan/{id}/events` streams live counts so the
-  Rescan button shows real progress instead of polling.
+### 5.3 In-browser reader
 
-**Should-ship**
-- **Duplicate detection.** Surface exact-match (same content_hash) and
-  probable-match (same ISBN or near-duplicate fuzzy title) in an admin
-  view so users can manually resolve.
-- **Reader polish.** EPUB reader gains a TOC sidebar, font-size +
-  theme (light/sepia/dark), and remembers per-book preferences.
+- **EPUB reader.** epub.js with paginated flow (spread:none). CSS overrides
+  prevent book styles from breaking column pagination. TOC sidebar from
+  `book.navigation.toc`. Font size (S/M/L). Light/sepia/dark themes via
+  `rendition.themes.override()`. Keyboard navigation (arrows, PageUp/Down,
+  space). Per-book theme/font preferences persisted server-side.
+- **PDF reader.** Browser's native PDF viewer in an iframe. `?inline=1`
+  query param on the file endpoint serves with inline Content-Disposition.
+- **Mobile-responsive.** Swipe left/right for page navigation (50px threshold,
+  vertical swipes ignored). Nav arrows hidden on mobile (swipe replaces them).
+  Compact toolbar, full-width viewport, TOC floats as overlay panel.
 
-**Deferred to v0.3+**
-- External metadata providers (Google Books / Open Library) with a
-  per-book "refresh metadata" action.
-- Format conversion via Calibre's `ebook-convert`.
-- Send-to-Kindle / send-to-device email.
-- Multi-library support (separate roots with names and permissions).
-- OIDC / reverse-proxy auth.
-- Highlights, bookmarks, notes in the reader.
-- PDF first-page thumbnail generation for missing covers.
+### 5.4 Metadata enrichment
 
-### 5.3 v0.2 success criteria
+- **Embedded subject extraction.** EPUB `<dc:subject>` and PDF keywords
+  extracted as tags during scan.
+- **Open Library enrichment.** Rate-limited client (1 req/sec). ISBN lookup
+  → edition + works endpoints; title+author search fallback. Fills empty
+  description, tags (top 15 subjects, normalized), series, publisher, cover.
+  Non-destructive: never overwrites non-empty fields.
+- **Tag normalization.** Canonical genre mapping (100+ entries) for verbose
+  OL/EPUB subjects. Strips noise (places, curricula, metadata artifacts).
+  Sidebar filters tags with <2 books to reduce clutter.
+- **Admin tools.** "Rescan embedded metadata" re-extracts from all files.
+  "Enrich all from Open Library" batch enrichment. "Refresh metadata" button
+  on book detail page.
+- **Async enrichment.** Scanner queues newly added books for background
+  enrichment via a buffered channel drained by a worker goroutine.
 
-- A fresh install completes first-run setup (create admin → log in →
-  point at a library → browse) in under 2 minutes.
-- Two users on the same instance see independent progress, collections,
-  and "Continue reading" rows.
-- Opening a book on device A, reading to chapter 3, then opening it on
-  device B resumes at chapter 3 within one second of page load.
-- Dropping a new EPUB into the library root makes it appear in the UI
-  within 5 seconds (fsnotify-triggered scan).
-- Existing v0.1 localStorage progress is migrated on first login, not
-  lost.
+### 5.5 Scan UX
 
-### 5.4 v0.2 non-goals
+- **fsnotify watcher.** Recursive per-root, auto-subscribes to new
+  subdirectories. 2-second debounce before triggering scan. Watcher +
+  periodic ticker run concurrently.
+- **SSE scan events.** `GET /api/scan/{id}/events` streams job snapshots
+  every 500ms. Keepalive comments every 15s. Rescan button on the home page
+  uses EventSource for live progress.
+- **Scanner pub-sub.** Internal broadcast of ScanJob snapshots to subscriber
+  channels. Slow subscribers drop frames rather than blocking.
 
-- Sharing reading lists or progress between users.
-- Sync with external services (Goodreads, Storygraph, Calibre server).
-- Mobile app.
-- Per-collection ACLs — collections are owned by a single user.
-- Migrating to Postgres. SQLite remains the only supported store.
+### 5.6 Upload
+
+- **Browser upload.** `POST /api/books/upload` accepts multipart EPUB/PDF/
+  MOBI/AZW3 files (max 100MB). Validates format, sanitizes filename, writes
+  to `LIBRARY_ROOT/uploads/` with collision-safe naming. Inline processing
+  (hash → metadata → upsert → cover → enrich queue) so books appear
+  immediately without waiting for a scan cycle.
+- **Upload dialog.** Drag-and-drop zone + file picker. File list with remove
+  buttons. XHR upload with progress bar. Success results link to new book
+  detail pages.
+
+### 5.7 Duplicate detection & book management
+
+- **Duplicate detection.** Two strategies: shared ISBN, same normalized
+  title + first author. Admin-only `/admin/duplicates` page with grouped
+  suspects showing cover, path, format, size, ISBN.
+- **Book deletion.** Admin-only `DELETE /api/books/{id}`. Two options on
+  detail page and duplicates page: "Remove from library" (soft-delete, keep
+  file) and "Delete file from disk" (permanent). Confirmation dialogs.
+  Frontend visibility gated by `session.can('books', 'delete')`.
+
+### 5.8 Infrastructure
+
+- **Docker.** Multi-stage Dockerfile: node:22-alpine (SPA build) →
+  golang:1.25-alpine (static binary with embedded SPA) → alpine:3.21
+  runtime (~30MB, non-root user). docker-compose.yml for deployment.
+- **CI/CD.** GitHub Actions: go test + pnpm check on every push/PR. Docker
+  build + push to ghcr.io on main pushes and semver tags. GHA layer caching.
+- **Embed.** SvelteKit SPA compiled to `internal/webui/dist/` and embedded
+  via `//go:embed`. SPA fallback for client-side routing.
 
 ## 6. Architecture
 
@@ -145,11 +186,12 @@ so progress, collections, and favorites are meaningful across devices.
       │         mylib server (Go)           │
       │  ┌──────────────────────────────┐   │
       │  │  Huma v2 HTTP layer          │◄──┼─── OpenAPI 3.1 spec
-      │  │  (chi router)                │   │     (auto-generated)
+      │  │  (chi router, Casbin RBAC)   │   │     (auto-generated)
       │  └──────────────┬───────────────┘   │
       │  ┌──────────────┴───────────────┐   │
       │  │  services: library, scan,    │   │
-      │  │  metadata, users, progress   │   │
+      │  │  metadata, enrich, auth,     │   │
+      │  │  users, progress, watcher    │   │
       │  └──────────────┬───────────────┘   │
       │  ┌──────────────┴───────────────┐   │
       │  │  storage: sqlite (modernc)   │   │
@@ -159,7 +201,7 @@ so progress, collections, and favorites are meaningful across devices.
                      │
                      ▼
               ┌──────────────┐
-              │  ~/Books/... │  (source of truth; read-only by default)
+              │  ~/Books/... │  (source of truth)
               └──────────────┘
 ```
 
@@ -167,36 +209,30 @@ so progress, collections, and favorites are meaningful across devices.
 
 | Concern           | Choice                                         |
 | ----------------- | ---------------------------------------------- |
-| Language          | Go 1.26+                                       |
+| Language          | Go 1.25+                                       |
 | HTTP framework    | [Huma v2](https://huma.rocks) on chi           |
+| Authorization     | Casbin v2 (embedded model + policy)            |
 | Database          | SQLite via `modernc.org/sqlite` (pure Go)      |
 | FTS               | SQLite FTS5                                    |
 | Migrations        | `pressly/goose`                                |
-| EPUB parsing      | `github.com/taylorskalyo/goreader/epub` or own |
+| EPUB parsing      | stdlib `archive/zip` + `encoding/xml`          |
 | PDF metadata      | `github.com/pdfcpu/pdfcpu`                     |
 | File watching     | `fsnotify`                                     |
-| Config            | env vars + optional `config.yaml`              |
-| Web frontend      | Svelte 5 (runes) + SvelteKit, Vite, TypeScript |
-| Client generation | `oapi-codegen` for Go,                         |
-|                   | `openapi-typescript` + `openapi-fetch` for TS  |
+| Enrichment        | Open Library API                               |
+| Config            | env vars (`MYLIB_` prefix)                     |
+| Web frontend      | Svelte 5 (runes) + SvelteKit, adapter-static   |
+| EPUB reader       | epub.js                                        |
+| Client generation | `openapi-typescript` + `openapi-fetch` for TS  |
+| CI/CD             | GitHub Actions → ghcr.io Docker images         |
 
-### 6.2 Why Huma
-
-- OpenAPI 3.1 spec emitted directly from typed Go handler signatures — the
-  spec cannot drift from the implementation.
-- Input/output structs give us request validation, response shapes, and
-  client-generation input from one definition.
-- First-class support for streaming (needed for file downloads) and SSE
-  (needed for scan-progress updates).
-
-## 7. Data Model (sketch)
+## 7. Data Model
 
 ```
 books
   id, content_hash, path, format, size_bytes, mtime,
   title, sort_title, subtitle, description,
   series_id, series_index, language, isbn, publisher,
-  published_at, added_at, cover_path
+  published_at, added_at, cover_path, metadata_source, deleted_at
 
 authors                book_authors (book_id, author_id, role)
   id, name, sort_name
@@ -210,93 +246,104 @@ tags
 users
   id, username, password_hash, role, created_at
 
+sessions
+  token, user_id, created_at, expires_at
+
 reading_progress
-  user_id, book_id, position, percent, finished, updated_at
+  user_id, book_id, position, percent, finished,
+  theme, font_size, updated_at
 
 collections            collection_books (collection_id, book_id, position)
-  id, user_id, name
+  id, user_id, name, created_at
 
 scan_jobs
   id, root, started_at, finished_at, status,
-  files_seen, files_added, files_updated, files_removed
+  files_seen, files_added, files_updated, files_removed, error
 ```
 
-Full-text index is a virtual FTS5 table over
+Full-text index: FTS5 virtual table `books_fts` over
 `(title, subtitle, authors, series, description, tags)`.
+Contentless with `contentless_delete=1`.
 
-## 8. API Surface (selected)
+## 8. API Surface
 
 ```
-POST   /auth/login                      → { token }
-POST   /auth/logout
-GET    /auth/me
+POST   /api/auth/login                   → { user }
+POST   /api/auth/logout
+GET    /api/auth/me                      → { user }
+GET    /api/auth/permissions             → { permissions[] }
 
-GET    /books                           list/filter/search
-GET    /books/{id}
-PATCH  /books/{id}                      user metadata overrides
-GET    /books/{id}/file                 stream original file
-GET    /books/{id}/cover                cover image
-GET    /books/{id}/progress             current user's progress
-PUT    /books/{id}/progress
+GET    /api/books                        list/filter/search (multi-tag OR)
+GET    /api/books/{id}
+PATCH  /api/books/{id}                   metadata overrides (books:edit)
+DELETE /api/books/{id}                   soft-delete (books:delete)
+GET    /api/books/{id}/file              stream original file (?inline=1)
+GET    /api/books/{id}/cover             cover image (ETag+immutable)
+GET    /api/books/{id}/progress          current user's progress
+PUT    /api/books/{id}/progress          save progress
+POST   /api/books/{id}/enrich            refresh from Open Library
+POST   /api/books/upload                 multipart file upload
 
-GET    /authors, /series, /tags
-GET    /collections, POST /collections, ...
+GET    /api/authors
+GET    /api/series
+GET    /api/tags                         → [{name, count}]
+GET    /api/collections, POST, ...
+GET    /api/progress/recent              continue-reading entries
+POST   /api/progress/import             localStorage migration
 
-POST   /scan                            trigger rescan
-GET    /scan/{id}                       status
-GET    /scan/{id}/events                SSE progress stream
+POST   /api/scan                         trigger rescan (scan:trigger)
+GET    /api/scan/{id}
+GET    /api/scan/{id}/events             SSE progress stream
 
-GET    /opds                            OPDS 1.2 root catalog
-GET    /opds/recent, /opds/authors, ... browseable subfeeds
+GET    /api/users                        (users:manage)
+POST   /api/users
+DELETE /api/users/{id}
 
-GET    /openapi.json, /docs
+GET    /api/admin/duplicates             (admin:access)
+POST   /api/admin/rescan-metadata
+POST   /api/admin/enrich-all
+
+GET    /opds                             OPDS 1.2 root catalog
+GET    /opds/recent, /opds/authors, ...
+
+GET    /api/openapi.json, /api/docs
 ```
-
-All JSON endpoints share a typed error envelope (RFC 7807 problem+json,
-which Huma produces by default).
 
 ## 9. Configuration
 
 Env vars (prefix `MYLIB_`):
 
-```
-MYLIB_LIBRARY_ROOTS=/srv/books:/srv/pdfs   # colon-separated
-MYLIB_DATA_DIR=/var/lib/mylib              # db + covers + index
-MYLIB_LISTEN=:8080
-MYLIB_SESSION_SECRET=...
-MYLIB_SCAN_INTERVAL=10m                    # 0 disables periodic scans
-MYLIB_LOG_LEVEL=info
-```
+| Variable                 | Default    | Description                            |
+| ------------------------ | ---------- | -------------------------------------- |
+| `MYLIB_LIBRARY_ROOTS`    | (required) | `:`-separated paths to scan            |
+| `MYLIB_DATA_DIR`         | `./data`   | SQLite DB + cached covers              |
+| `MYLIB_LISTEN`           | `:8080`    | HTTP listen address                    |
+| `MYLIB_SCAN_INTERVAL`    | `10m`      | Periodic rescan cadence (`0` disables) |
+| `MYLIB_LOG_LEVEL`        | `info`     | `debug` / `info` / `warn` / `error`   |
+| `MYLIB_ADMIN_USER`       |            | Bootstrap admin username               |
+| `MYLIB_ADMIN_PASSWORD`   |            | Bootstrap admin password               |
 
-## 10. Milestones
+## 10. Resolved Decisions
 
-1. **Skeleton & scan:** Huma server, SQLite migrations, scanner that
-   populates `books` from disk with EPUB + PDF metadata extraction.
-2. **API & OpenAPI:** full CRUD for books/authors/series/tags; filters &
-   FTS search; generated TS + Go clients wired up.
-3. **Auth & progress:** users, sessions, per-user reading progress,
-   collections.
-4. **Serving:** file downloads, cover serving with ETags, OPDS feed.
-5. **Scan UX:** fsnotify watcher, SSE progress stream, admin endpoints.
-6. **Web UI:** minimal Svelte 5 (SvelteKit) app consuming the generated
-   TypeScript client — browse, search, download. Uses runes (`$state`,
-   `$derived`, `$effect`) for reactivity; no Svelte stores for new code.
+- **EPUB progress format:** CFI (epub.js-native, reader-agnostic).
+- **PDF progress format:** `page:N` (opaque string, frontend-owned).
+- **Cover storage:** files on disk, sharded by content hash.
+- **SvelteKit adapter:** `adapter-static` with `embed.FS` for single-binary.
+- **TS client generation:** checked-in schema via `pnpm gen:api`.
+- **Auth bootstrap:** env vars (`MYLIB_ADMIN_USER`/`PASSWORD`), created on
+  startup when users table is empty.
+- **Reader flow:** paginated (epub.js `flow: 'paginated'`, `spread: 'none'`)
+  with CSS overrides for book style conflicts.
+- **Tag filtering:** OR semantics (comma-separated on the wire).
 
-## 11. Open Questions
+## 11. Future Work
 
-- **Progress granularity for PDFs:** page number is easy; for EPUBs, do we
-  store CFI (reader-agnostic but complex) or a simple spine-index + offset?
-- **Cover storage:** inline in SQLite blob vs. files on disk. Leaning
-  files-on-disk for HTTP caching simplicity.
-- **Author de-duplication:** "Ursula K. Le Guin" vs. "Ursula Le Guin" vs.
-  "Le Guin, Ursula K." — do we attempt fuzzy merges, or leave to manual
-  admin actions?
-- **Write access to the library root:** keep strictly read-only in v1, or
-  allow a "organize on import" mode that moves files into
-  `Author/Series/Title.ext`? (Post-MVP, opt-in.)
-- **Client generation in CI:** who owns the generated code — checked in,
-  or generated on build? Leaning checked-in for TS (so web devs can work
-  without running the Go server) and generated-on-build for internal Go.
-- **SvelteKit adapter:** `adapter-static` (ship the SPA as assets served
-  by the Go binary via `embed.FS`) vs. `adapter-node` (separate process,
-  SSR available). Leaning `adapter-static` for single-binary deploys.
+- Format conversion via Calibre's `ebook-convert`.
+- Send-to-Kindle / send-to-device email.
+- Multi-library support (separate roots with names and permissions).
+- OIDC / reverse-proxy auth.
+- Highlights, bookmarks, notes in the reader.
+- Import from Calibre DB.
+- Batch tag editing.
+- Reading stats / activity dashboard.
+- MOBI/AZW3 real PalmDB header parsing.
