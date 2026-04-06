@@ -66,30 +66,35 @@ func extractPDFCover(rs io.ReadSeeker) *Cover {
 	if err != nil || len(pages) == 0 {
 		return nil
 	}
-	// Find the largest image by pixel area on page 1.
-	var best model.Image
-	bestArea := 0
-	found := false
+	// Read all images eagerly — the underlying readers share the PDF
+	// stream and become invalid once we move past them.
+	type candidate struct {
+		data     []byte
+		fileType string
+		area     int
+	}
+	var best *candidate
 	for _, pageImages := range pages {
 		for _, img := range pageImages {
 			area := img.Width * img.Height
-			if area > bestArea {
-				best = img
-				bestArea = area
-				found = true
+			if area < 100*100 {
+				continue // skip tiny images (icons, decorations)
+			}
+			data, err := io.ReadAll(&img)
+			if err != nil || len(data) == 0 {
+				continue
+			}
+			if best == nil || area > best.area {
+				best = &candidate{data: data, fileType: img.FileType, area: area}
 			}
 		}
 	}
-	if !found || bestArea < 100*100 {
-		return nil // skip tiny images (icons, decorations)
-	}
-	data, err := io.ReadAll(&best)
-	if err != nil || len(data) == 0 {
+	if best == nil {
 		return nil
 	}
-	mime := "image/" + strings.ToLower(best.FileType)
-	if best.FileType == "" {
+	mime := "image/" + strings.ToLower(best.fileType)
+	if best.fileType == "" {
 		mime = "image/jpeg"
 	}
-	return &Cover{Data: data, MIMEType: mime}
+	return &Cover{Data: best.data, MIMEType: mime}
 }
