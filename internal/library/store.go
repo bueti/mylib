@@ -246,7 +246,7 @@ func (s *Store) ListBooks(ctx context.Context, f BookFilter) ([]*Book, int, erro
 	}
 
 	limit := f.Limit
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 {
 		limit = 50
 	}
 
