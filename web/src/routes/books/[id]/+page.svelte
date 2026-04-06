@@ -140,19 +140,30 @@
 		}
 	}
 
-	async function deleteBook() {
+	async function removeBook() {
 		if (!book || deleting) return;
-		const deleteFile = confirm(
-			`Delete "${book.title}"?\n\nClick OK to remove from library.\nThe file will be kept on disk.`
-		);
-		// For simplicity: first confirm removes from DB, second confirm optionally deletes file.
-		const alsoDeleteFile = deleteFile && confirm('Also delete the file from disk? This cannot be undone.');
-
-		if (!deleteFile) return;
+		if (!confirm(`Remove "${book.title}" from library?\n\nThe file on disk will be kept.`)) return;
 		deleting = true;
 		try {
-			const q = alsoDeleteFile ? '?delete_file=1' : '';
-			const res = await fetch(`/api/books/${book.id}${q}`, {
+			const res = await fetch(`/api/books/${book.id}`, {
+				method: 'DELETE',
+				credentials: 'same-origin'
+			});
+			if (!res.ok) throw new Error(await res.text());
+			await goto('/');
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Remove failed');
+		} finally {
+			deleting = false;
+		}
+	}
+
+	async function deleteBookAndFile() {
+		if (!book || deleting) return;
+		if (!confirm(`Delete "${book.title}" AND its file from disk?\n\nThis cannot be undone.`)) return;
+		deleting = true;
+		try {
+			const res = await fetch(`/api/books/${book.id}?delete_file=1`, {
 				method: 'DELETE',
 				credentials: 'same-origin'
 			});
@@ -293,8 +304,11 @@
 			{/if}
 
 			{#if session.can('books', 'delete')}
-				<button class="delete-btn" onclick={deleteBook} disabled={deleting}>
-					{deleting ? 'Deleting…' : 'Delete book'}
+				<button class="remove-btn" onclick={removeBook} disabled={deleting}>
+					Remove from library
+				</button>
+				<button class="delete-btn" onclick={deleteBookAndFile} disabled={deleting}>
+					Delete file from disk
 				</button>
 			{/if}
 		</div>
@@ -522,6 +536,20 @@
 		color: #999;
 		cursor: wait;
 	}
+	.remove-btn {
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		background: #f5f5f5;
+		color: #333;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		font-size: 0.8125rem;
+		cursor: pointer;
+	}
+	.remove-btn:hover:not(:disabled) {
+		background: #eee;
+		border-color: #999;
+	}
 	.delete-btn {
 		width: 100%;
 		padding: 0.5rem 0.75rem;
@@ -536,6 +564,7 @@
 		background: #b00020;
 		color: #fff;
 	}
+	.remove-btn:disabled,
 	.delete-btn:disabled {
 		opacity: 0.5;
 		cursor: wait;
