@@ -1,3 +1,44 @@
 apiVersion: v1
-entries: {}
-generated: "2026-04-06T00:00:00Z"
+entries:
+  mylib:
+  - annotations:
+      artifacthub.io/category: storage
+      artifacthub.io/changes: |
+        - kind: added
+          description: Initial Helm chart release
+      artifacthub.io/containsSecurityUpdates: "false"
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: Documentation
+          url: https://github.com/bueti/mylib#readme
+        - name: Container Image
+          url: https://ghcr.io/bueti/mylib
+      artifacthub.io/prerelease: "false"
+      artifacthub.io/screenshots: ""
+      artifacthub.io/signKey: ""
+    apiVersion: v2
+    appVersion: 0.2.0
+    created: "2026-04-06T11:25:14.776376805Z"
+    description: Self-hosted ebook & PDF library manager with in-browser reader
+    digest: 8e8b22a24db7afc2c8ad3b882c27536bfa7914b90cba5a2bc196a610c59b51f7
+    home: https://github.com/bueti/mylib
+    icon: https://raw.githubusercontent.com/bueti/mylib/main/charts/mylib/icon.svg
+    keywords:
+    - ebooks
+    - library
+    - epub
+    - pdf
+    - opds
+    - reader
+    - self-hosted
+    maintainers:
+    - name: Benjamin Bütikofer
+      url: https://github.com/bueti
+    name: mylib
+    sources:
+    - https://github.com/bueti/mylib
+    type: application
+    urls:
+    - https://github.com/bueti/mylib/releases/download/mylib-0.1.0/mylib-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-04-06T11:25:14.776385007Z"
