@@ -47,9 +47,19 @@
 			rendition = book.renderTo(container, {
 				width: '100%',
 				height: '100%',
-				flow: 'scrolled-doc',
-				manager: 'default',
+				flow: 'paginated',
+				spread: 'none',
 				allowScriptedContent: true
+			});
+
+			// Override book CSS that breaks column pagination (wide
+			// images, fixed widths, large margins).
+			rendition.themes.default({
+				'img': { 'max-width': '100% !important', 'height': 'auto !important' },
+				'svg': { 'max-width': '100% !important' },
+				'table': { 'max-width': '100% !important' },
+				'pre': { 'white-space': 'pre-wrap !important', 'word-wrap': 'break-word !important' },
+				'body': { 'margin': '0 !important', 'padding': '1rem !important', 'max-width': 'none !important' },
 			});
 
 			// Register themes and apply default. Users switch via the toolbar.
@@ -363,7 +373,7 @@
 		background: #fff;
 		box-shadow: 0 0 20px rgba(0, 0, 0, 0.08);
 		margin: 0 1rem;
-		overflow-y: auto;
+		overflow: hidden;
 	}
 	.nav {
 		flex: 0 0 60px;
