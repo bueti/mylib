@@ -25,7 +25,9 @@
 	let books = $state<Book[]>([]);
 	let total = $state(0);
 	let loading = $state(false);
+	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
+	const PAGE_SIZE = 60;
 	let recent = $state<RecentEntry[]>([]);
 	let allTags = $state<TagCount[]>([]);
 	let sidebarOpen = $state(true);
@@ -93,6 +95,26 @@
 		return () => clearTimeout(debounceTimer);
 	});
 
+	function buildParams(f: {
+		q: string;
+		author?: number;
+		series?: number;
+		tags: string[];
+		format?: string | null;
+		sort: string;
+	}, offset: number): URLSearchParams {
+		const params = new URLSearchParams();
+		if (f.q) params.set('q', f.q);
+		if (f.author) params.set('author_id', String(f.author));
+		if (f.series) params.set('series_id', String(f.series));
+		if (f.tags.length > 0) params.set('tag', f.tags.join(','));
+		if (f.format) params.set('format', f.format);
+		params.set('sort', f.sort);
+		params.set('limit', String(PAGE_SIZE));
+		params.set('offset', String(offset));
+		return params;
+	}
+
 	async function load(f: {
 		q: string;
 		author?: number;
@@ -104,15 +126,7 @@
 		loading = true;
 		error = null;
 		try {
-			const params = new URLSearchParams();
-			if (f.q) params.set('q', f.q);
-			if (f.author) params.set('author_id', String(f.author));
-			if (f.series) params.set('series_id', String(f.series));
-			if (f.tags.length > 0) params.set('tag', f.tags.join(','));
-			if (f.format) params.set('format', f.format);
-			params.set('sort', f.sort);
-			params.set('limit', '60');
-
+			const params = buildParams(f, 0);
 			const res = await fetch('/api/books?' + params.toString(), { credentials: 'same-origin' });
 			if (!res.ok) throw new Error('HTTP ' + res.status);
 			const data = await res.json();
@@ -124,6 +138,25 @@
 			total = 0;
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadMore() {
+		if (loadingMore || books.length >= total) return;
+		loadingMore = true;
+		try {
+			const params = buildParams({
+				q: query, author: activeAuthor?.id, series: activeSeries?.id,
+				tags: activeTags, format: activeFormat, sort: activeSort
+			}, books.length);
+			const res = await fetch('/api/books?' + params.toString(), { credentials: 'same-origin' });
+			if (!res.ok) throw new Error('HTTP ' + res.status);
+			const data = await res.json();
+			books = [...books, ...(data?.books ?? [])];
+		} catch {
+			// silent — user can try scrolling again
+		} finally {
+			loadingMore = false;
 		}
 	}
 
@@ -370,6 +403,13 @@
 					</li>
 				{/each}
 			</ul>
+			{#if books.length < total}
+				<div class="load-more">
+					<button onclick={loadMore} disabled={loadingMore}>
+						{loadingMore ? 'Loading…' : `Load more (${books.length} of ${total})`}
+					</button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
@@ -733,6 +773,28 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.load-more {
+		display: flex;
+		justify-content: center;
+		margin-top: 2rem;
+	}
+	.load-more button {
+		padding: 0.625rem 2rem;
+		background: #fff;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		font-size: 0.9375rem;
+		color: #333;
+		cursor: pointer;
+	}
+	.load-more button:hover:not(:disabled) {
+		border-color: #888;
+		background: #f5f5f5;
+	}
+	.load-more button:disabled {
+		color: #999;
+		cursor: wait;
 	}
 	@media (max-width: 768px) {
 		.sidebar {
