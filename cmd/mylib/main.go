@@ -16,6 +16,7 @@ import (
 	"github.com/bueti/mylib/internal/config"
 	"github.com/bueti/mylib/internal/covers"
 	"github.com/bueti/mylib/internal/db"
+	"github.com/bueti/mylib/internal/enrich"
 	"github.com/bueti/mylib/internal/library"
 	"github.com/bueti/mylib/internal/opds"
 	"github.com/bueti/mylib/internal/scanner"
@@ -62,13 +63,21 @@ func run() error {
 		return err
 	}
 	sc := scanner.New(store, cfg.LibraryRoots, coverCache)
+	enricher := enrich.New(store, coverCache)
+
+	// Async enrichment queue: scanner pushes book IDs in after insert,
+	// a worker goroutine drains them in the background.
+	enrichQueue := make(chan int64, 100)
+	sc.EnrichQueue = enrichQueue
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	go enricher.RunWorker(ctx, enrichQueue)
+
 	// All API routes live under /api/... already, OPDS under /opds, and
 	// the embedded SPA serves / with an SPA fallback for unknown paths.
-	apiRouter := api.NewRouter(api.Deps{Store: store, Scanner: sc, Covers: coverCache})
+	apiRouter := api.NewRouter(api.Deps{Store: store, Scanner: sc, Covers: coverCache, Enricher: enricher})
 	root := chi.NewRouter()
 	// Delegate any /api/* or /opds* requests to their handlers; fall
 	// through to the SPA for everything else.

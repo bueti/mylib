@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/bueti/mylib/internal/covers"
+	"github.com/bueti/mylib/internal/enrich"
 	"github.com/bueti/mylib/internal/library"
 	"github.com/bueti/mylib/internal/scanner"
 	"github.com/danielgtaylor/huma/v2"
@@ -15,9 +16,10 @@ import (
 
 // Deps bundles the handler dependencies.
 type Deps struct {
-	Store   *library.Store
-	Scanner *scanner.Scanner
-	Covers  *covers.Cache
+	Store    *library.Store
+	Scanner  *scanner.Scanner
+	Covers   *covers.Cache
+	Enricher *enrich.Enricher
 }
 
 // NewRouter returns a chi router exposing the mylib HTTP API. All
@@ -48,6 +50,9 @@ func NewRouter(deps Deps) http.Handler {
 	registerFileRoutes(r, deps)
 	registerSSE(r, deps)
 	registerAdmin(r, deps.Store)
+	if deps.Enricher != nil {
+		registerEnrich(r, deps.Store, deps.Enricher)
+	}
 
 	return r
 }

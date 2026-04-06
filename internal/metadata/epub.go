@@ -48,6 +48,12 @@ func extractEPUB(filePath string) (*Metadata, error) {
 		Publisher:   firstNonEmpty(pkg.Metadata.Publishers),
 		PublishedAt: firstNonEmpty(pkg.Metadata.Dates),
 	}
+	for _, subj := range pkg.Metadata.Subjects {
+		s := strings.TrimSpace(subj)
+		if s != "" {
+			md.Subjects = append(md.Subjects, s)
+		}
+	}
 	for _, c := range pkg.Metadata.Creators {
 		if c.Text != "" {
 			md.Authors = append(md.Authors, c.Text)
@@ -172,6 +178,7 @@ type opfPackage struct {
 	Metadata struct {
 		Titles       []string       `xml:"title"`
 		Creators     []opfCreator   `xml:"creator"`
+		Subjects     []string       `xml:"subject"`
 		Descriptions []string       `xml:"description"`
 		Languages    []string       `xml:"language"`
 		Publishers   []string       `xml:"publisher"`

@@ -12,14 +12,14 @@ import (
 
 func TestDetectFormat(t *testing.T) {
 	cases := map[string]Format{
-		"book.epub":             FormatEPUB,
-		"BOOK.EPUB":             FormatEPUB,
-		"report.pdf":            FormatPDF,
-		"thing.mobi":            FormatMOBI,
-		"thing.azw3":            FormatAZW3,
-		"thing.azw":             FormatAZW3,
-		"something.txt":         Format(""),
-		"/path/to/novel.epub":   FormatEPUB,
+		"book.epub":           FormatEPUB,
+		"BOOK.EPUB":           FormatEPUB,
+		"report.pdf":          FormatPDF,
+		"thing.mobi":          FormatMOBI,
+		"thing.azw3":          FormatAZW3,
+		"thing.azw":           FormatAZW3,
+		"something.txt":       Format(""),
+		"/path/to/novel.epub": FormatEPUB,
 	}
 	for path, want := range cases {
 		assert.Equal(t, want, DetectFormat(path), "path=%s", path)
@@ -38,6 +38,8 @@ func TestExtract_EPUB_FullMetadata(t *testing.T) {
     <dc:date>1968</dc:date>
     <dc:identifier scheme="ISBN">9780553262506</dc:identifier>
     <dc:description>A boy with a gift for magic.</dc:description>
+    <dc:subject>Fantasy</dc:subject>
+    <dc:subject>Young Adult</dc:subject>
     <meta name="calibre:series" content="Earthsea"/>
     <meta name="calibre:series_index" content="1"/>
     <meta name="cover" content="cover-img"/>
@@ -65,6 +67,9 @@ func TestExtract_EPUB_FullMetadata(t *testing.T) {
 	require.NotNil(t, md.Cover)
 	assert.Equal(t, "image/png", md.Cover.MIMEType)
 	assert.NotEmpty(t, md.Cover.Data)
+	require.Len(t, md.Subjects, 2)
+	assert.Equal(t, "Fantasy", md.Subjects[0])
+	assert.Equal(t, "Young Adult", md.Subjects[1])
 }
 
 func TestExtract_EPUB_MinimalMetadata_FallsBackToFilename(t *testing.T) {

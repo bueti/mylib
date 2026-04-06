@@ -3,6 +3,7 @@ package metadata
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 )
@@ -28,6 +29,23 @@ func extractPDF(filePath string) (*Metadata, error) {
 	}
 	if info.CreationDate != "" {
 		md.PublishedAt = info.CreationDate
+	}
+	// Keywords are often stored as a comma- or semicolon-separated string.
+	for _, kw := range info.Keywords {
+		for _, sep := range []string{";", ","} {
+			if strings.Contains(kw, sep) {
+				for _, part := range strings.Split(kw, sep) {
+					if s := strings.TrimSpace(part); s != "" {
+						md.Subjects = append(md.Subjects, s)
+					}
+				}
+				kw = "" // consumed
+				break
+			}
+		}
+		if s := strings.TrimSpace(kw); s != "" {
+			md.Subjects = append(md.Subjects, s)
+		}
 	}
 	return md, nil
 }

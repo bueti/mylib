@@ -34,7 +34,8 @@ type Metadata struct {
 	Language    string
 	ISBN        string
 	Publisher   string
-	PublishedAt string // ISO date or year
+	PublishedAt string   // ISO date or year
+	Subjects    []string // genre/topic tags from dc:subject or keywords
 	// Cover is the raw image bytes and MIME type, or nil if no cover
 	// was found.
 	Cover *Cover

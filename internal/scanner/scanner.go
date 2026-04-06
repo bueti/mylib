@@ -38,6 +38,10 @@ type Scanner struct {
 	subMu   sync.Mutex
 	subs    map[int64][]chan library.ScanJob
 	lastJob map[int64]library.ScanJob
+
+	// EnrichQueue receives book IDs that should be enriched from
+	// external sources after scanning. Set by main.go; nil disables.
+	EnrichQueue chan<- int64
 }
 
 // New builds a Scanner. dataDir is where covers are written.
@@ -280,6 +284,17 @@ func (s *Scanner) processFile(ctx context.Context, path string, existing map[str
 		job.FilesUpdated++
 	} else {
 		job.FilesAdded++
+		// Queue the new book for async external enrichment if the
+		// queue is wired up.
+		if s.EnrichQueue != nil && (book.ISBN != "" || book.Title != "") {
+			if id, err := s.store.GetBookByPath(ctx, path); err == nil {
+				select {
+				case s.EnrichQueue <- id.ID:
+				default:
+					// queue full — skip enrichment for this book
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -309,6 +324,7 @@ func buildBook(path string, st os.FileInfo, hash string, md *metadata.Metadata, 
 			SortName: library.SortName(name),
 		})
 	}
+	b.Tags = append(b.Tags, md.Subjects...)
 	return b
 }
 
