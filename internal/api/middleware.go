@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bueti/mylib/internal/authz"
 	"github.com/bueti/mylib/internal/library"
 )
 
@@ -58,21 +59,24 @@ func RequireAuth(store *library.Store) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAdmin rejects non-admins with 403. Must be applied inside
-// RequireAuth.
-func RequireAdmin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u := UserFromContext(r.Context())
-		if u == nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if !u.IsAdmin() {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// Authorize returns middleware that checks the authenticated user's
+// role against the Casbin policy for the given resource and action.
+// Must be applied after RequireAuth.
+func Authorize(az *authz.Authorizer, resource, action string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := UserFromContext(r.Context())
+			if u == nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			if !az.Can(string(u.Role), resource, action) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // userFromCookie resolves the current user from the session cookie,

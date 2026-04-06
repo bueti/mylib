@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/bueti/mylib/internal/authz"
 	"github.com/bueti/mylib/internal/covers"
 	"github.com/bueti/mylib/internal/db"
 	"github.com/bueti/mylib/internal/library"
@@ -47,7 +48,7 @@ func TestAPI_ListAndGetBook(t *testing.T) {
 	require.NoError(t, err)
 	sc := scanner.New(store, []string{dataDir}, coverCache)
 
-	handler := NewRouter(Deps{Store: store, Scanner: sc, Covers: coverCache})
+	handler := NewRouter(Deps{Store: store, Scanner: sc, Covers: coverCache, Authz: testAuthz(t)})
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
@@ -110,7 +111,7 @@ func TestAPI_Taxonomy(t *testing.T) {
 	coverCache, err := covers.New(dataDir)
 	require.NoError(t, err)
 	sc := scanner.New(store, []string{dataDir}, coverCache)
-	srv := httptest.NewServer(NewRouter(Deps{Store: store, Scanner: sc, Covers: coverCache}))
+	srv := httptest.NewServer(NewRouter(Deps{Store: store, Scanner: sc, Covers: coverCache, Authz: testAuthz(t)}))
 	defer srv.Close()
 
 	for _, path := range []string{"/api/authors", "/api/series", "/api/tags"} {
@@ -138,4 +139,13 @@ func itoa(i int64) string {
 		buf = append([]byte("-"), buf...)
 	}
 	return string(buf)
+}
+
+func testAuthz(t *testing.T) *authz.Authorizer {
+	t.Helper()
+	az, err := authz.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return az
 }

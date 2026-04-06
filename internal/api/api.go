@@ -4,6 +4,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/bueti/mylib/internal/authz"
 	"github.com/bueti/mylib/internal/covers"
 	"github.com/bueti/mylib/internal/enrich"
 	"github.com/bueti/mylib/internal/library"
@@ -20,6 +21,7 @@ type Deps struct {
 	Scanner     *scanner.Scanner
 	Covers      *covers.Cache
 	Enricher    *enrich.Enricher
+	Authz       *authz.Authorizer
 	LibraryRoot string       // first library root — uploads land here
 	EnrichQueue chan<- int64 // async enrichment queue (may be nil)
 }
@@ -42,8 +44,8 @@ func NewRouter(deps Deps) http.Handler {
 	humaCfg.SchemasPath = "/api/schemas"
 	api := humachi.New(r, humaCfg)
 
-	registerAuth(r, deps.Store)
-	registerUsers(r, deps.Store)
+	registerAuth(r, deps.Store, deps.Authz)
+	registerUsers(r, deps.Store, deps.Authz)
 	registerBooks(api, deps)
 	registerTaxonomy(api, deps)
 	registerScan(api, deps)
@@ -51,10 +53,10 @@ func NewRouter(deps Deps) http.Handler {
 	registerCollections(api, deps)
 	registerFileRoutes(r, deps)
 	registerSSE(r, deps)
-	registerAdmin(r, deps.Store, deps.Scanner)
-	registerDeleteBook(r, deps.Store)
+	registerAdmin(r, deps.Store, deps.Scanner, deps.Authz)
+	registerDeleteBook(r, deps.Store, deps.Authz)
 	if deps.Enricher != nil {
-		registerEnrich(r, deps.Store, deps.Enricher)
+		registerEnrich(r, deps.Store, deps.Enricher, deps.Authz)
 	}
 	if deps.LibraryRoot != "" {
 		registerUpload(r, deps)

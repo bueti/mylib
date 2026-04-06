@@ -42,7 +42,7 @@ func TestAPI_CoverAndFileDownload(t *testing.T) {
 	require.NoError(t, err)
 
 	sc := scanner.New(store, []string{libRoot}, coverCache)
-	srv := httptest.NewServer(NewRouter(Deps{Store: store, Scanner: sc, Covers: coverCache}))
+	srv := httptest.NewServer(NewRouter(Deps{Store: store, Scanner: sc, Covers: coverCache, Authz: testAuthz(t)}))
 	defer srv.Close()
 
 	books, _, err := store.ListBooks(ctx, library.BookFilter{})

@@ -5,13 +5,14 @@ import (
 	"time"
 
 	"github.com/bueti/mylib/internal/auth"
+	"github.com/bueti/mylib/internal/authz"
 	"github.com/bueti/mylib/internal/library"
 	"github.com/go-chi/chi/v5"
 )
 
 // registerAuth wires login/logout/me as chi handlers (they set cookies
 // which is awkward in Huma's typed-return model).
-func registerAuth(r chi.Router, store *library.Store) {
+func registerAuth(r chi.Router, store *library.Store, az *authz.Authorizer) {
 	r.Post("/api/auth/login", func(w http.ResponseWriter, req *http.Request) {
 		var body struct {
 			Username string `json:"username"`
@@ -56,11 +57,21 @@ func registerAuth(r chi.Router, store *library.Store) {
 		}
 		writeJSON(w, http.StatusOK, meResponse(u))
 	})
+
+	r.Get("/api/auth/permissions", func(w http.ResponseWriter, req *http.Request) {
+		u := userFromCookie(req, store)
+		if u == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		perms := az.PermissionsForRole(string(u.Role))
+		writeJSON(w, http.StatusOK, map[string]any{"permissions": perms})
+	})
 }
 
 // registerUsers wires admin-only user management.
-func registerUsers(r chi.Router, store *library.Store) {
-	r.With(RequireAuth(store), RequireAdmin).Get("/api/users", func(w http.ResponseWriter, req *http.Request) {
+func registerUsers(r chi.Router, store *library.Store, az *authz.Authorizer) {
+	r.With(RequireAuth(store), Authorize(az, "users", "manage")).Get("/api/users", func(w http.ResponseWriter, req *http.Request) {
 		users, err := store.ListUsers(req.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -73,7 +84,7 @@ func registerUsers(r chi.Router, store *library.Store) {
 		writeJSON(w, http.StatusOK, map[string]any{"users": out})
 	})
 
-	r.With(RequireAuth(store), RequireAdmin).Post("/api/users", func(w http.ResponseWriter, req *http.Request) {
+	r.With(RequireAuth(store), Authorize(az, "users", "manage")).Post("/api/users", func(w http.ResponseWriter, req *http.Request) {
 		var body struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
@@ -105,7 +116,7 @@ func registerUsers(r chi.Router, store *library.Store) {
 		writeJSON(w, http.StatusCreated, meResponse(u))
 	})
 
-	r.With(RequireAuth(store), RequireAdmin).Delete("/api/users/{id}", func(w http.ResponseWriter, req *http.Request) {
+	r.With(RequireAuth(store), Authorize(az, "users", "manage")).Delete("/api/users/{id}", func(w http.ResponseWriter, req *http.Request) {
 		id := intParam(req, "id")
 		if id <= 0 {
 			http.Error(w, "invalid id", http.StatusBadRequest)

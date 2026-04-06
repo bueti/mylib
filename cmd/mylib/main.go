@@ -13,6 +13,7 @@ import (
 
 	"github.com/bueti/mylib/internal/api"
 	"github.com/bueti/mylib/internal/auth"
+	"github.com/bueti/mylib/internal/authz"
 	"github.com/bueti/mylib/internal/config"
 	"github.com/bueti/mylib/internal/covers"
 	"github.com/bueti/mylib/internal/db"
@@ -75,6 +76,11 @@ func run() error {
 
 	go enricher.RunWorker(ctx, enrichQueue)
 
+	az, err := authz.New()
+	if err != nil {
+		return err
+	}
+
 	// All API routes live under /api/... already, OPDS under /opds, and
 	// the embedded SPA serves / with an SPA fallback for unknown paths.
 	apiRouter := api.NewRouter(api.Deps{
@@ -82,6 +88,7 @@ func run() error {
 		Scanner:     sc,
 		Covers:      coverCache,
 		Enricher:    enricher,
+		Authz:       az,
 		LibraryRoot: cfg.LibraryRoots[0],
 		EnrichQueue: enrichQueue,
 	})

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bueti/mylib/internal/auth"
+	"github.com/bueti/mylib/internal/authz"
 	"github.com/bueti/mylib/internal/covers"
 	"github.com/bueti/mylib/internal/db"
 	"github.com/bueti/mylib/internal/library"
@@ -39,7 +40,9 @@ func authTestServer(t *testing.T) (*httptest.Server, *library.Store, *library.Us
 	coverCache, err := covers.New(dataDir)
 	require.NoError(t, err)
 	sc := scanner.New(store, []string{dataDir}, coverCache)
-	srv := httptest.NewServer(NewRouter(Deps{Store: store, Scanner: sc, Covers: coverCache}))
+	az, err := authz.New()
+	require.NoError(t, err)
+	srv := httptest.NewServer(NewRouter(Deps{Store: store, Scanner: sc, Covers: coverCache, Authz: az}))
 	t.Cleanup(srv.Close)
 	return srv, store, admin, reader
 }

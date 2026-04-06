@@ -5,13 +5,14 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/bueti/mylib/internal/authz"
 	"github.com/bueti/mylib/internal/library"
 	"github.com/go-chi/chi/v5"
 )
 
-// registerDeleteBook wires the admin-only book deletion endpoint.
-func registerDeleteBook(r chi.Router, store *library.Store) {
-	r.With(RequireAuth(store), RequireAdmin).Delete("/api/books/{id}", func(w http.ResponseWriter, req *http.Request) {
+// registerDeleteBook wires the book deletion endpoint (books:delete permission).
+func registerDeleteBook(r chi.Router, store *library.Store, az *authz.Authorizer) {
+	r.With(RequireAuth(store), Authorize(az, "books", "delete")).Delete("/api/books/{id}", func(w http.ResponseWriter, req *http.Request) {
 		id := intParam(req, "id")
 		if id <= 0 {
 			http.Error(w, "invalid id", http.StatusBadRequest)

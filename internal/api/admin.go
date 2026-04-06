@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/bueti/mylib/internal/authz"
 	"github.com/bueti/mylib/internal/library"
 	"github.com/bueti/mylib/internal/scanner"
 	"github.com/go-chi/chi/v5"
@@ -28,8 +29,8 @@ type DuplicateGroupDTO struct {
 }
 
 // registerAdmin wires admin-only maintenance endpoints.
-func registerAdmin(r chi.Router, store *library.Store, sc *scanner.Scanner) {
-	r.With(RequireAuth(store), RequireAdmin).Get("/api/admin/duplicates", func(w http.ResponseWriter, req *http.Request) {
+func registerAdmin(r chi.Router, store *library.Store, sc *scanner.Scanner, az *authz.Authorizer) {
+	r.With(RequireAuth(store), Authorize(az, "admin", "access")).Get("/api/admin/duplicates", func(w http.ResponseWriter, req *http.Request) {
 		groups, err := store.FindDuplicates(req.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -49,7 +50,7 @@ func registerAdmin(r chi.Router, store *library.Store, sc *scanner.Scanner) {
 		writeJSON(w, http.StatusOK, map[string]any{"groups": out})
 	})
 
-	r.With(RequireAuth(store), RequireAdmin).Post("/api/admin/rescan-metadata", func(w http.ResponseWriter, req *http.Request) {
+	r.With(RequireAuth(store), Authorize(az, "admin", "access")).Post("/api/admin/rescan-metadata", func(w http.ResponseWriter, req *http.Request) {
 		n, err := sc.ForceRescan(req.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
