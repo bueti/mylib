@@ -34,3 +34,4 @@ annotations:
       url: https://github.com/bueti/mylib#readme
     - name: Container Image
       url: https://ghcr.io/bueti/mylib
+
