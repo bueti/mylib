@@ -76,6 +76,10 @@ func extractPDFCover(rs io.ReadSeeker) *Cover {
 	var best *candidate
 	for _, pageImages := range pages {
 		for _, img := range pageImages {
+			// Some PDFs have image entries with nil readers — skip them.
+			if img.Reader == nil {
+				continue
+			}
 			data, err := io.ReadAll(&img)
 			if err != nil || len(data) < 1000 {
 				continue // skip tiny/empty images

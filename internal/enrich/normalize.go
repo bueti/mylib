@@ -3,7 +3,6 @@ package enrich
 import (
 	"regexp"
 	"strings"
-	"unicode"
 )
 
 // NormalizeSubjects takes raw Open Library/EPUB subjects and returns
@@ -73,39 +72,6 @@ func cleanSubject(s string) string {
 
 var parenSuffix = regexp.MustCompile(`\s*\([^)]+\)\s*$`)
 
-// looksLikePersonName returns true if the string looks like "Firstname Lastname"
-// (2-3 capitalized words, no common genre words).
-func looksLikePersonName(s string) bool {
-	words := strings.Fields(s)
-	if len(words) < 2 || len(words) > 4 {
-		return false
-	}
-	caps := 0
-	for _, w := range words {
-		if len(w) > 0 && unicode.IsUpper(rune(w[0])) {
-			caps++
-		}
-	}
-	// All words capitalized, none are common genre words.
-	if caps == len(words) {
-		lower := strings.ToLower(s)
-		for _, genre := range []string{
-			"fiction", "science", "fantasy", "horror", "mystery",
-			"romance", "thriller", "drama", "poetry", "history",
-			"philosophy", "psychology", "biography", "adventure",
-			"classic", "literary", "short", "stories", "young",
-			"action", "political", "historical", "computer",
-			"programming", "technology", "self-help", "business",
-		} {
-			if strings.Contains(lower, genre) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
 func isNoise(s string) bool {
 	lower := strings.ToLower(s)
 	if _, ok := noiseExact[lower]; ok {
@@ -132,55 +98,55 @@ func isNoise(s string) bool {
 
 var noiseExact = map[string]struct{}{
 	// Meta / too vague
-	"general":                      {},
-	"readers":                      {},
-	"fiction":                      {},
-	"nonfiction":                   {},
-	"literature":                   {},
-	"novels":                       {},
-	"roman":                        {},
-	"romans":                       {},
-	"development":                  {},
-	"unknown":                      {},
-	"miscellaneous":                {},
+	"general":       {},
+	"readers":       {},
+	"fiction":       {},
+	"nonfiction":    {},
+	"literature":    {},
+	"novels":        {},
+	"roman":         {},
+	"romans":        {},
+	"development":   {},
+	"unknown":       {},
+	"miscellaneous": {},
 
 	// Archive/library metadata
-	"accessible book":              {},
-	"protected daisy":              {},
-	"open_syllabus_project":        {},
-	"open syllabus project":        {},
-	"internet archive wishlist":    {},
-	"overdrive":                    {},
+	"accessible book":           {},
+	"protected daisy":           {},
+	"open_syllabus_project":     {},
+	"open syllabus project":     {},
+	"internet archive wishlist": {},
+	"overdrive":                 {},
 
 	// Social/relationships
-	"social life and customs":      {},
-	"social conditions":            {},
-	"social aspects":               {},
-	"interpersonal relations":      {},
-	"man-woman relationships":      {},
-	"young women":                  {},
-	"young men":                    {},
-	"teenage boys":                 {},
-	"teenage girls":                {},
-	"brothers and sisters":         {},
-	"friendship":                   {},
-	"families":                     {},
-	"family":                       {},
-	"family life":                  {},
-	"orphans":                      {},
-	"missing persons":              {},
-	"conduct of life":              {},
-	"identity":                     {},
-	"coming of age":                {},
-	"bildungsromans":               {},
-	"girls":                        {},
-	"boys":                         {},
-	"women":                        {},
-	"men":                          {},
-	"illegitimate children":        {},
-	"inheritance and succession":   {},
-	"monsters":                     {},
-	"totalitarianism":              {},
+	"social life and customs":    {},
+	"social conditions":          {},
+	"social aspects":             {},
+	"interpersonal relations":    {},
+	"man-woman relationships":    {},
+	"young women":                {},
+	"young men":                  {},
+	"teenage boys":               {},
+	"teenage girls":              {},
+	"brothers and sisters":       {},
+	"friendship":                 {},
+	"families":                   {},
+	"family":                     {},
+	"family life":                {},
+	"orphans":                    {},
+	"missing persons":            {},
+	"conduct of life":            {},
+	"identity":                   {},
+	"coming of age":              {},
+	"bildungsromans":             {},
+	"girls":                      {},
+	"boys":                       {},
+	"women":                      {},
+	"men":                        {},
+	"illegitimate children":      {},
+	"inheritance and succession": {},
+	"monsters":                   {},
+	"totalitarianism":            {},
 
 	// Reading/academic
 	"reading":                      {},
@@ -190,33 +156,71 @@ var noiseExact = map[string]struct{}{
 	"textual criticism":            {},
 	"application software":         {},
 	"computer software":            {},
+	"computer books and software":  {},
 	"text-books for foreigners":    {},
 	"textbooks":                    {},
 
+	// Plot elements / too specific
+	"animals":                    {},
+	"survival":                   {},
+	"triangles":                  {},
+	"mate selection":             {},
+	"social classes":             {},
+	"novela":                     {},
+	"courage":                    {},
+	"revenge":                    {},
+	"betrayal":                   {},
+	"quests":                     {},
+	"voyages and travels":        {},
+	"imaginary places":           {},
+	"imaginary wars and battles": {},
+	"good and evil":              {},
+	"magic":                      {},
+	"wizards":                    {},
+	"witches":                    {},
+	"dragons":                    {},
+	"kings and rulers":           {},
+	"soldiers":                   {},
+	"time travel":                {},
+	"robots":                     {},
+	"aliens":                     {},
+	"space flight":               {},
+
 	// Places (when standalone)
-	"england":                      {},
-	"london":                       {},
-	"france":                       {},
-	"paris":                        {},
-	"america":                      {},
-	"united states":                {},
-	"europe":                       {},
-	"africa":                       {},
-	"india":                        {},
-	"china":                        {},
-	"japan":                        {},
-	"russia":                       {},
+	"england":       {},
+	"london":        {},
+	"france":        {},
+	"paris":         {},
+	"america":       {},
+	"united states": {},
+	"europe":        {},
+	"africa":        {},
+	"india":         {},
+	"china":         {},
+	"japan":         {},
+	"russia":        {},
+	"scotland":      {},
+	"ireland":       {},
+	"new york":      {},
 
 	// Publisher names
-	"pragmatic bookshelf":          {},
-	"o'reilly":                     {},
-	"manning":                      {},
-	"packt":                        {},
+	"pragmatic bookshelf": {},
+	"o'reilly":            {},
+	"manning":             {},
+	"packt":               {},
+	"apress":              {},
+	"addison-wesley":      {},
+	"wiley":               {},
 }
 
 var noisePatterns = []string{
 	"in fiction",
 	"in literature",
+	"nature stories",
+	"/ general",
+	"/ fiction",
+	"computers /",
+	"fiction /",
 	"curriculum",
 	"gcse",
 	"key stage",
@@ -241,8 +245,8 @@ var noisePatterns = []string{
 	"bestseller",
 	"fictional works by",
 	"works by one author",
-	"literature 1",   // "French literature 1900"
-	"literature 2",   // "American literature 2000"
+	"literature 1", // "French literature 1900"
+	"literature 2", // "American literature 2000"
 	"literature, 1",
 	"literature, 2",
 	"history and criticism",
@@ -338,18 +342,18 @@ var canonicalMap = map[string]string{
 	"political":                              "Politics",
 
 	// Classics
-	"classic":                  "Classics",
-	"classics":                 "Classics",
-	"classic literature":       "Classics",
-	"classical literature":     "Classics",
+	"classic":              "Classics",
+	"classics":             "Classics",
+	"classic literature":   "Classics",
+	"classical literature": "Classics",
 
 	// Children's/YA
-	"juvenile fiction":          "Children's",
-	"children's fiction":        "Children's",
-	"children's stories":        "Children's",
-	"children's literature":     "Children's",
-	"young adult fiction":       "Young Adult",
-	"young adult literature":    "Young Adult",
+	"juvenile fiction":       "Children's",
+	"children's fiction":     "Children's",
+	"children's stories":     "Children's",
+	"children's literature":  "Children's",
+	"young adult fiction":    "Young Adult",
+	"young adult literature": "Young Adult",
 
 	// British fiction
 	"british and irish fiction":                                 "British Fiction",
@@ -359,70 +363,82 @@ var canonicalMap = map[string]string{
 	"english literature 2000":                                   "British Fiction",
 
 	// Non-fiction
-	"philosophy":                 "Philosophy",
-	"filosofía":                  "Philosophy",
-	"filosofie":                  "Philosophy",
-	"philosophie":                "Philosophy",
-	"filosofia":                  "Philosophy",
-	"filosofia contemporanea":    "Philosophy",
-	"philosophie, histoire":      "Philosophy",
-	"biography & autobiography":  "Biography",
+	"philosophy":                         "Philosophy",
+	"filosofía":                          "Philosophy",
+	"filosofie":                          "Philosophy",
+	"philosophie":                        "Philosophy",
+	"filosofia":                          "Philosophy",
+	"filosofia contemporanea":            "Philosophy",
+	"philosophie, histoire":              "Philosophy",
+	"biography & autobiography":          "Biography",
 	"biography & autobiography, general": "Biography",
-	"biography":                  "Biography",
-	"autobiographies":            "Biography",
-	"history":                    "History",
-	"history, general":           "History",
-	"world history":              "History",
-	"self-help":                  "Self-Help",
-	"self-help, general":         "Self-Help",
-	"self-improvement":           "Self-Help",
-	"business & economics":       "Business",
-	"business & economics, general": "Business",
-	"business":                   "Business",
-	"economics":                  "Economics",
-	"psychology":                 "Psychology",
-	"psychology, general":        "Psychology",
-	"social science":             "Social Science",
-	"social sciences":            "Social Science",
-	"political science":          "Politics",
-	"political science, general": "Politics",
-	"computers":                  "Technology",
-	"computers, general":         "Technology",
-	"technology & engineering":   "Technology",
-	"technology":                 "Technology",
-	"computer science":           "Computer Science",
-	"computer programming":       "Programming",
+	"biography":                          "Biography",
+	"autobiographies":                    "Biography",
+	"history":                            "History",
+	"history, general":                   "History",
+	"world history":                      "History",
+	"self-help":                          "Self-Help",
+	"self-help, general":                 "Self-Help",
+	"self-improvement":                   "Self-Help",
+	"business & economics":               "Business",
+	"business & economics, general":      "Business",
+	"business":                           "Business",
+	"economics":                          "Economics",
+	"psychology":                         "Psychology",
+	"psychology, general":                "Psychology",
+	"social science":                     "Social Science",
+	"social sciences":                    "Social Science",
+	"political science":                  "Politics",
+	"political science, general":         "Politics",
+	"computers":                          "Technology",
+	"computers, general":                 "Technology",
+	"technology & engineering":           "Technology",
+	"technology":                         "Technology",
+	"computer science":                   "Computer Science",
+	"computer programming":               "Programming",
 	"programming languages (electronic computers)": "Programming",
 	"functional programming languages":             "Programming",
-	"funktionale programmiersprache":                "Programming",
-	"funktionale programmierung":                    "Programming",
-	"software engineering":       "Programming",
-	"web development":            "Programming",
-	"android":                    "Programming",
-	"mathematics":                "Mathematics",
-	"science":                    "Science",
-	"science, general":           "Science",
-	"popular science":            "Science",
-	"nature":                     "Nature",
-	"religion":                   "Religion",
-	"spirituality":               "Spirituality",
-	"true crime":                 "True Crime",
-	"travel":                     "Travel",
-	"cooking":                    "Cooking",
-	"health & fitness":           "Health",
-	"medical":                    "Health",
-	"art":                        "Art",
-	"music":                      "Music",
-	"education":                  "Education",
+	"funktionale programmiersprache":               "Programming",
+	"funktionale programmierung":                   "Programming",
+	"software engineering":                         "Programming",
+	"web development":                              "Programming",
+	"android":                                      "Programming",
+	"mathematics":                                  "Mathematics",
+	"science":                                      "Science",
+	"science, general":                             "Science",
+	"popular science":                              "Science",
+	"nature":                                       "Nature",
+	"religion":                                     "Religion",
+	"spirituality":                                 "Spirituality",
+	"true crime":                                   "True Crime",
+	"travel":                                       "Travel",
+	"cooking":                                      "Cooking",
+	"health & fitness":                             "Health",
+	"medical":                                      "Health",
+	"art":                                          "Art",
+	"music":                                        "Music",
+	"education":                                    "Education",
 
 	// Literature categories
-	"literary criticism":                    "Literary Criticism",
-	"literary criticism, general":           "Literary Criticism",
+	"literary criticism":                     "Literary Criticism",
+	"literary criticism, general":            "Literary Criticism",
 	"english literature: literary criticism": "Literary Criticism",
-	"textual criticism":                     "Literary Criticism",
-	"drama":                                 "Drama",
-	"drama (dramatic works by one author)":  "Drama",
-	"plays":                                 "Drama",
-	"poetry":                                "Poetry",
-	"essays":                                "Essays",
+	"textual criticism":                      "Literary Criticism",
+	"drama":                                  "Drama",
+	"drama (dramatic works by one author)":   "Drama",
+	"plays":                                  "Drama",
+	"poetry":                                 "Poetry",
+	"essays":                                 "Essays",
+
+	// Catch-all for slash-separated OL tags
+	"computers / programming languages / general": "Programming",
+	"fiction / classics":                          "Classics",
+	"fiction / general":                           "Literary Fiction",
+	"fiction / literary":                          "Literary Fiction",
+
+	// Misc consolidation
+	"computer network protocols":  "Technology",
+	"computer books and software": "Programming",
+	"children's poetry, english":  "Children's",
+	"american nature stories":     "Nature",
 }
