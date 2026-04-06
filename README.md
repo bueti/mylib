@@ -4,6 +4,8 @@ Self-hosted ebook & PDF library manager. Single Go binary with an
 embedded Svelte 5 web UI, in-browser EPUB/PDF reader, and OPDS 1.2
 feed for e-reader apps.
 
+My first project that has been fully written by Claude Code.
+
 ## Features
 
 - **Library scanning** — point at one or more directories; scans
