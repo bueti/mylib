@@ -33,6 +33,10 @@
 	let saver: ReturnType<typeof makeSaver> | undefined;
 
 	onMount(async () => {
+		// Lock body scroll while reader is open so mobile doesn't
+		// scroll the page behind the fixed overlay.
+		document.body.style.overflow = 'hidden';
+
 		const bid = bookId;
 		saver = makeSaver(bid);
 		try {
@@ -119,6 +123,7 @@
 	});
 
 	onDestroy(() => {
+		document.body.style.overflow = '';
 		try {
 			saver?.flush();
 			resizeObserver?.disconnect();
@@ -157,8 +162,18 @@
 		rendition?.prev();
 	}
 	function gotoHref(href: string) {
-		rendition?.display(href);
+		if (!rendition || !book) return;
 		tocOpen = false;
+		// Resolve the TOC href through the spine so epub.js finds the
+		// correct section. TOC hrefs may contain fragments (#id) that
+		// need to be handled by the section, not the display call.
+		const section = book.spine.get(href);
+		if (section) {
+			rendition.display(section.href);
+		} else {
+			// Fallback: try the raw href.
+			rendition.display(href);
+		}
 	}
 	function applyTheme(name: ThemeName) {
 		if (!rendition) return;
@@ -217,8 +232,7 @@
 		</ul>
 	</aside>
 
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="main" ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
+	<div class="main">
 		<div class="toolbar">
 			<button onclick={() => (tocOpen = !tocOpen)} title="Contents">☰</button>
 			<div class="font-size" role="group" aria-label="Font size">
@@ -249,7 +263,8 @@
 			<p class="status error">Error: {error}</p>
 		{/if}
 
-		<div class="viewport-wrap">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="viewport-wrap" ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
 			<button class="nav nav-prev" onclick={prev} disabled={atStart} aria-label="Previous page">‹</button>
 			<div class="viewport" bind:this={container}></div>
 			<button class="nav nav-next" onclick={next} disabled={atEnd} aria-label="Next page">›</button>
