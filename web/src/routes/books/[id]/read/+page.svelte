@@ -109,6 +109,21 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	@media (max-width: 640px) {
+		.reader-overlay {
+			top: 48px; /* shorter header on mobile */
+		}
+		.reader-header {
+			padding: 0.375rem 0.75rem;
+			gap: 0.5rem;
+		}
+		.back {
+			font-size: 0.75rem;
+		}
+		.title {
+			font-size: 0.875rem;
+		}
+	}
 	.status {
 		margin: 2rem;
 		color: #666;

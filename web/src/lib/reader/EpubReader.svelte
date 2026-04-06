@@ -133,6 +133,23 @@
 		saver?.flush();
 	}
 
+	// Swipe navigation for touch devices.
+	let touchStartX = 0;
+	let touchStartY = 0;
+	function onTouchStart(e: TouchEvent) {
+		touchStartX = e.touches[0].clientX;
+		touchStartY = e.touches[0].clientY;
+	}
+	function onTouchEnd(e: TouchEvent) {
+		const dx = e.changedTouches[0].clientX - touchStartX;
+		const dy = e.changedTouches[0].clientY - touchStartY;
+		// Only trigger on horizontal swipes (|dx| > 50px, |dy| < |dx|).
+		if (Math.abs(dx) > 50 && Math.abs(dy) < Math.abs(dx)) {
+			if (dx < 0) next();
+			else prev();
+		}
+	}
+
 	function next() {
 		rendition?.next();
 	}
@@ -200,7 +217,8 @@
 		</ul>
 	</aside>
 
-	<div class="main">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="main" ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
 		<div class="toolbar">
 			<button onclick={() => (tocOpen = !tocOpen)} title="Contents">☰</button>
 			<div class="font-size" role="group" aria-label="Font size">
@@ -422,5 +440,43 @@
 		background: rgba(255, 255, 255, 0.85);
 		padding: 0.125rem 0.5rem;
 		border-radius: 10px;
+	}
+
+	/* Mobile: hide nav arrows (swipe instead), compact toolbar,
+	   full-width viewport, collapse TOC by default */
+	@media (max-width: 640px) {
+		.nav {
+			display: none;
+		}
+		.viewport {
+			margin: 0;
+			box-shadow: none;
+		}
+		.toolbar {
+			padding: 0.25rem 0.5rem;
+			gap: 0.375rem;
+			overflow-x: auto;
+		}
+		.toolbar > button {
+			padding: 0.25rem 0.375rem;
+			font-size: 1rem;
+		}
+		.font-size button {
+			padding: 0.125rem 0.375rem;
+		}
+		.toc.open {
+			position: absolute;
+			top: 0;
+			left: 0;
+			bottom: 0;
+			z-index: 10;
+			flex: none;
+			width: 260px;
+			box-shadow: 4px 0 12px rgba(0, 0, 0, 0.15);
+		}
+		.page-info {
+			bottom: 0.25rem;
+			font-size: 0.625rem;
+		}
 	}
 </style>
