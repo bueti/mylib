@@ -52,19 +52,27 @@
 				allowScriptedContent: true
 			});
 
-			// Override book CSS that breaks column pagination (wide
-			// images, fixed widths, large margins).
-			rendition.themes.default({
+
+			// Overrides that prevent book CSS from breaking pagination.
+			const overrides = {
 				'img': { 'max-width': '100% !important', 'height': 'auto !important' },
 				'svg': { 'max-width': '100% !important' },
 				'table': { 'max-width': '100% !important' },
 				'pre': { 'white-space': 'pre-wrap !important', 'word-wrap': 'break-word !important' },
-				'body': { 'margin': '0 !important', 'padding': '1rem !important', 'max-width': 'none !important' },
-			});
+			};
 
-			// Register themes and apply default. Users switch via the toolbar.
+			// Register each theme with overrides baked in so select()
+			// switches everything at once (default() would stick).
 			for (const [name, style] of Object.entries(themes)) {
-				rendition.themes.register(name, style);
+				const merged = { ...overrides, ...style };
+				// Merge body styles with padding/margin overrides.
+				merged['body'] = {
+					...(style as Record<string, Record<string, string>>).body,
+					'margin': '0 !important',
+					'padding': '1rem !important',
+					'max-width': 'none !important',
+				};
+				rendition.themes.register(name, merged);
 			}
 
 			book.locations.generate(1600).catch(() => {});
