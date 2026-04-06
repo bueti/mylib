@@ -1,0 +1,20 @@
+services:
+  mylib:
+    image: ghcr.io/bueti/mylib:main
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - data:/data
+      - /path/to/your/books:/books:ro
+    environment:
+      MYLIB_LIBRARY_ROOTS: /books
+      MYLIB_DATA_DIR: /data
+      MYLIB_LISTEN: ":8080"
+      MYLIB_SCAN_INTERVAL: 10m
+      MYLIB_ADMIN_USER: admin
+      MYLIB_ADMIN_PASSWORD: changeme  # change this!
+      MYLIB_LOG_LEVEL: info
+
+volumes:
+  data:
