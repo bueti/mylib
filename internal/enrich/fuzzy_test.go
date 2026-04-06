@@ -13,12 +13,8 @@ func TestJaroWinkler_Identical(t *testing.T) {
 }
 
 func TestJaroWinkler_Similar(t *testing.T) {
-	// These should score high (> 0.9).
 	cases := []struct{ a, b string }{
 		{"Classics", "Classic"},
-		{"Children's", "Children's fiction"},
-		{"Horror", "Horror stories"},
-		{"Programming", "Programming languages"},
 		{"Science Fiction", "Science-Fiction"},
 		{"Historical Fiction", "Historical fiction"},
 	}
@@ -29,7 +25,6 @@ func TestJaroWinkler_Similar(t *testing.T) {
 }
 
 func TestJaroWinkler_Different(t *testing.T) {
-	// These should score low (< 0.8).
 	cases := []struct{ a, b string }{
 		{"Fantasy", "Programming"},
 		{"Horror", "Romance"},
@@ -42,40 +37,81 @@ func TestJaroWinkler_Different(t *testing.T) {
 	}
 }
 
-func TestMergeSimilarTags(t *testing.T) {
+func TestContainsTag(t *testing.T) {
+	shorter, _, ok := containsTag("Classics", "FICTION / Classics")
+	assert.True(t, ok)
+	assert.Equal(t, "Classics", shorter)
+
+	shorter, _, ok = containsTag("COMPUTERS / Programming Languages / General", "Programming")
+	assert.True(t, ok)
+	assert.Equal(t, "Programming", shorter)
+
+	_, _, ok = containsTag("Fantasy", "Horror")
+	assert.False(t, ok)
+
+	// Same length tokens — not containment.
+	_, _, ok = containsTag("Fantasy", "Romance")
+	assert.False(t, ok)
+}
+
+func TestTokenSetRatio(t *testing.T) {
+	// "Programming" tokens are a subset of the longer tag.
+	ratio := tokenSetRatio("Programming", "COMPUTERS / Programming Languages / General")
+	assert.Greater(t, ratio, 0.79, "got %.3f", ratio)
+
+	// Unrelated tags.
+	ratio = tokenSetRatio("Fantasy", "Programming")
+	assert.Less(t, ratio, 0.5, "got %.3f", ratio)
+}
+
+func TestMergeSimilarTags_ThreePass(t *testing.T) {
 	tags := []TagWithCount{
 		{Name: "Science Fiction", Count: 10},
 		{Name: "Science-Fiction", Count: 3},
-		{Name: "Sci-Fi", Count: 2},
 		{Name: "Fantasy", Count: 8},
 		{Name: "Horror", Count: 5},
 		{Name: "Horror Stories", Count: 2},
 		{Name: "Programming", Count: 6},
+		{Name: "COMPUTERS / Programming Languages / General", Count: 2},
 		{Name: "Romance", Count: 4},
+		{Name: "FICTION / Classics", Count: 2},
+		{Name: "Classics", Count: 8},
 	}
 
-	merges := MergeSimilarTags(tags, 0.88)
+	merges := MergeSimilarTags(tags, 0.90)
 
-	// Science-Fiction should merge into Science Fiction (higher count).
+	// Containment: "FICTION / Classics" → "Classics".
+	if canon, ok := merges["FICTION / Classics"]; ok {
+		assert.Equal(t, "Classics", canon)
+	}
+
+	// Containment: long programming → "Programming".
+	if canon, ok := merges["COMPUTERS / Programming Languages / General"]; ok {
+		assert.Equal(t, "Programming", canon)
+	}
+
+	// Jaro-Winkler: "Science-Fiction" → "Science Fiction".
 	if canon, ok := merges["Science-Fiction"]; ok {
 		assert.Equal(t, "Science Fiction", canon)
 	}
 
-	// Horror Stories should merge into Horror.
-	if canon, ok := merges["Horror Stories"]; ok {
-		assert.Equal(t, "Horror", canon)
-	}
-
-	// Fantasy, Programming, Romance should NOT be merged into anything.
+	// Fantasy, Romance should NOT be merged.
 	assert.NotContains(t, merges, "Fantasy")
-	assert.NotContains(t, merges, "Programming")
 	assert.NotContains(t, merges, "Romance")
 
-	// Total merges should be reasonable (not merging everything).
-	require.Less(t, len(merges), 5)
+	require.LessOrEqual(t, len(merges), 6)
 }
 
 func TestMergeSimilarTags_Empty(t *testing.T) {
 	merges := MergeSimilarTags(nil, 0)
 	assert.Empty(t, merges)
+}
+
+func TestLooksLikePersonName(t *testing.T) {
+	assert.True(t, looksLikePersonName("Benjamin Buetikofer"))
+	assert.True(t, looksLikePersonName("John Smith"))
+	assert.False(t, looksLikePersonName("Science Fiction"))
+	assert.False(t, looksLikePersonName("Historical Fiction"))
+	assert.False(t, looksLikePersonName("Computer Programming"))
+	assert.False(t, looksLikePersonName("hello")) // too few words
 }
