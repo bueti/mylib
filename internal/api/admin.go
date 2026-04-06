@@ -52,13 +52,37 @@ func registerAdmin(r chi.Router, store *library.Store, sc *scanner.Scanner, az *
 	})
 
 	r.With(RequireAuth(store), Authorize(az, "admin", "access")).Post("/api/admin/normalize-tags", func(w http.ResponseWriter, req *http.Request) {
-		n, err := store.RenormalizeTags(req.Context(), enrich.NormalizeSubjects)
+		ctx := req.Context()
+
+		// Step 1: canonical normalization (hardcoded map + noise filter).
+		n, err := store.RenormalizeTags(ctx, enrich.NormalizeSubjects)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		orphans, _ := store.CleanOrphanTags(req.Context())
-		writeJSON(w, http.StatusOK, map[string]any{"updated": n, "orphan_tags_removed": orphans})
+
+		// Step 2: fuzzy-merge similar tags (Jaro-Winkler ≥ 0.90).
+		tagCounts, err := store.ListTagsWithCounts(ctx)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fuzzyInput := make([]enrich.TagWithCount, len(tagCounts))
+		for i, tc := range tagCounts {
+			fuzzyInput[i] = enrich.TagWithCount{Name: tc.Name, Count: tc.Count}
+		}
+		merges := enrich.MergeSimilarTags(fuzzyInput, 0.90)
+		fuzzyMerged, _ := store.ApplyTagMerges(ctx, merges)
+		n += fuzzyMerged
+
+		// Step 3: clean up orphaned tag rows.
+		orphans, _ := store.CleanOrphanTags(ctx)
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"updated":             n,
+			"fuzzy_merged":        len(merges),
+			"orphan_tags_removed": orphans,
+		})
 	})
 
 	r.With(RequireAuth(store), Authorize(az, "admin", "access")).Post("/api/admin/rescan-metadata", func(w http.ResponseWriter, req *http.Request) {
