@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/bueti/mylib/internal/authz"
+	"github.com/bueti/mylib/internal/enrich"
 	"github.com/bueti/mylib/internal/library"
 	"github.com/bueti/mylib/internal/scanner"
 	"github.com/go-chi/chi/v5"
@@ -48,6 +49,15 @@ func registerAdmin(r chi.Router, store *library.Store, sc *scanner.Scanner, az *
 			out = append(out, dto)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"groups": out})
+	})
+
+	r.With(RequireAuth(store), Authorize(az, "admin", "access")).Post("/api/admin/normalize-tags", func(w http.ResponseWriter, req *http.Request) {
+		n, err := store.RenormalizeTags(req.Context(), enrich.NormalizeSubjects)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"updated": n})
 	})
 
 	r.With(RequireAuth(store), Authorize(az, "admin", "access")).Post("/api/admin/rescan-metadata", func(w http.ResponseWriter, req *http.Request) {

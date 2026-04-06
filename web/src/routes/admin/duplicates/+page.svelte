@@ -41,6 +41,24 @@
 		}
 	}
 
+	async function normalizeTags() {
+		actionRunning = 'normalize';
+		actionResult = null;
+		try {
+			const res = await fetch('/api/admin/normalize-tags', {
+				method: 'POST',
+				credentials: 'same-origin'
+			});
+			if (!res.ok) throw new Error(await res.text());
+			const data = await res.json();
+			actionResult = `Tags cleaned: ${data.updated} books updated`;
+		} catch (e) {
+			actionResult = e instanceof Error ? e.message : 'Failed';
+		} finally {
+			actionRunning = '';
+		}
+	}
+
 	async function enrichAll() {
 		actionRunning = 'enrich';
 		actionResult = null;
@@ -109,6 +127,9 @@
 	</button>
 	<button onclick={enrichAll} disabled={!!actionRunning}>
 		{actionRunning === 'enrich' ? 'Enriching…' : 'Enrich all from Open Library'}
+	</button>
+	<button onclick={normalizeTags} disabled={!!actionRunning}>
+		{actionRunning === 'normalize' ? 'Normalizing…' : 'Clean up tags'}
 	</button>
 	{#if actionResult}
 		<p class="result">{actionResult}</p>
