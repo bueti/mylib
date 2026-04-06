@@ -101,13 +101,8 @@ func registerProgress(api huma.API, d Deps) {
 		return &GetProgressOutput{Body: toProgressDTO(p)}, nil
 	})
 
-	huma.Register(api, huma.Operation{
-		OperationID: "put-progress",
-		Method:      http.MethodPut,
-		Path:        "/api/books/{id}/progress",
-		Summary:     "Save the signed-in user's reading progress",
-		Tags:        []string{"progress"},
-	}, func(ctx context.Context, in *PutProgressInput) (*GetProgressOutput, error) {
+	// Register PUT for normal saves.
+	progressHandler := func(ctx context.Context, in *PutProgressInput) (*GetProgressOutput, error) {
 		u := UserFromContext(ctx)
 		if u == nil {
 			return nil, huma.Error401Unauthorized("login required")
@@ -126,7 +121,25 @@ func registerProgress(api huma.API, d Deps) {
 			return nil, huma.Error500InternalServerError("reload progress", err)
 		}
 		return &GetProgressOutput{Body: toProgressDTO(saved)}, nil
-	})
+	}
+
+	huma.Register(api, huma.Operation{
+		OperationID: "put-progress",
+		Method:      http.MethodPut,
+		Path:        "/api/books/{id}/progress",
+		Summary:     "Save the signed-in user's reading progress",
+		Tags:        []string{"progress"},
+	}, progressHandler)
+
+	// Also accept POST for the same handler — sendBeacon (used on page
+	// unload) always sends POST and can't be changed to PUT.
+	huma.Register(api, huma.Operation{
+		OperationID: "post-progress",
+		Method:      http.MethodPost,
+		Path:        "/api/books/{id}/progress",
+		Summary:     "Save reading progress (sendBeacon compat)",
+		Tags:        []string{"progress"},
+	}, progressHandler)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "list-recent-progress",
