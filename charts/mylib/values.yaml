@@ -1,0 +1,100 @@
+# Default values for mylib.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/bueti/mylib
+  pullPolicy: IfNotPresent
+  # Overrides the image tag; defaults to Chart.appVersion
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# mylib configuration — maps to MYLIB_ env vars
+config:
+  # Colon-separated paths inside the container to scan for books.
+  libraryRoots: /books
+  # Where the SQLite DB and cover cache live.
+  dataDir: /data
+  # HTTP listen address inside the container.
+  listen: ":8080"
+  # How often to re-scan library roots (0 disables periodic scans).
+  scanInterval: "10m"
+  logLevel: info
+
+# Admin bootstrap credentials. On first startup, if no users exist,
+# an admin is created from these values.
+admin:
+  username: admin
+  # Set via --set admin.password=... or in a sealed secret.
+  password: ""
+  # Use an existing secret instead of creating one. The secret must
+  # have keys `username` and `password`.
+  existingSecret: ""
+
+persistence:
+  data:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 1Gi
+    storageClass: ""
+    # Use an existing PVC
+    existingClaim: ""
+  books:
+    enabled: true
+    accessMode: ReadOnlyMany
+    size: 10Gi
+    storageClass: ""
+    existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: mylib.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: mylib-tls
+  #    hosts:
+  #      - mylib.example.com
+
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 256Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: true
