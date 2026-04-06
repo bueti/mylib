@@ -18,6 +18,89 @@
 	let enriching = $state(false);
 	let enrichStatus = $state<string | null>(null);
 
+	// Edit mode state.
+	let editing = $state(false);
+	let editForm = $state({
+		title: '',
+		subtitle: '',
+		description: '',
+		authors: '',
+		series_name: '',
+		series_index: '',
+		tags: '',
+		language: '',
+		isbn: '',
+		publisher: ''
+	});
+	let saving = $state(false);
+	let saveError = $state<string | null>(null);
+
+	function startEditing() {
+		if (!book) return;
+		editForm = {
+			title: book.title,
+			subtitle: book.subtitle ?? '',
+			description: book.description ?? '',
+			authors: (book.authors ?? []).map((a) => a.name).join(', '),
+			series_name: book.series?.name ?? '',
+			series_index: book.series_index != null ? String(book.series_index) : '',
+			tags: (book.tags ?? []).join(', '),
+			language: book.language ?? '',
+			isbn: book.isbn ?? '',
+			publisher: book.publisher ?? ''
+		};
+		editing = true;
+		saveError = null;
+	}
+
+	function cancelEditing() {
+		editing = false;
+		saveError = null;
+	}
+
+	async function saveEdits() {
+		if (!book || saving) return;
+		saving = true;
+		saveError = null;
+		try {
+			const authors = editForm.authors
+				.split(',')
+				.map((s) => s.trim())
+				.filter(Boolean);
+			const tags = editForm.tags
+				.split(',')
+				.map((s) => s.trim())
+				.filter(Boolean);
+			const body: Record<string, unknown> = {
+				title: editForm.title,
+				subtitle: editForm.subtitle,
+				description: editForm.description,
+				authors,
+				series_name: editForm.series_name,
+				tags,
+				language: editForm.language,
+				isbn: editForm.isbn,
+				publisher: editForm.publisher
+			};
+			if (editForm.series_index) {
+				body.series_index = parseFloat(editForm.series_index);
+			}
+			const res = await fetch(`/api/books/${book.id}`, {
+				method: 'PATCH',
+				credentials: 'same-origin',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			if (!res.ok) throw new Error(await res.text());
+			editing = false;
+			load(book.id);
+		} catch (e) {
+			saveError = e instanceof Error ? e.message : 'Save failed';
+		} finally {
+			saving = false;
+		}
+	}
+
 	$effect(() => {
 		const id = Number(page.params.id);
 		if (!Number.isFinite(id) || id <= 0) {
@@ -183,58 +266,85 @@
 		</div>
 
 		<div class="meta-col">
-			<h2>{book.title}</h2>
-			{#if book.subtitle}
-				<p class="subtitle">{book.subtitle}</p>
-			{/if}
-
-			<dl>
-				{#if (book.authors ?? []).length > 0}
-					<dt>Authors</dt>
-					<dd>
-						{#each book.authors ?? [] as a, i}
-							{#if i > 0}, {/if}
-							<a href="/?author_id={a.id}&author_name={encodeURIComponent(a.name)}">{a.name}</a>
-						{/each}
-					</dd>
-				{/if}
-				{#if book.series}
-					<dt>Series</dt>
-					<dd>
-						<a href="/?series_id={book.series.id}&series_name={encodeURIComponent(book.series.name)}">{book.series.name}</a>
-						{#if book.series_index != null}
-							· #{book.series_index}
-						{/if}
-					</dd>
-				{/if}
-				{#if book.publisher || book.published_at}
-					<dt>Published</dt>
-					<dd>
-						{book.publisher ?? ''}{book.publisher && book.published_at ? ' · ' : ''}{formatDate(book.published_at ?? '')}
-					</dd>
-				{/if}
-				{#if book.language}
-					<dt>Language</dt>
-					<dd>{book.language}</dd>
-				{/if}
-				{#if book.isbn}
-					<dt>ISBN</dt>
-					<dd>{book.isbn}</dd>
-				{/if}
-				{#if (book.tags ?? []).length > 0}
-					<dt>Tags</dt>
-					<dd>
-						{#each book.tags ?? [] as tag}
-							<a class="chip" href="/?tag={encodeURIComponent(tag)}">{tag}</a>
-						{/each}
-					</dd>
-				{/if}
-			</dl>
-
-			{#if book.description}
-				<div class="description">
-					{@html book.description}
+			{#if editing}
+				<form class="edit-form" onsubmit={(e) => { e.preventDefault(); saveEdits(); }}>
+					<label>Title <input type="text" bind:value={editForm.title} required /></label>
+					<label>Subtitle <input type="text" bind:value={editForm.subtitle} /></label>
+					<label>Authors <input type="text" bind:value={editForm.authors} placeholder="Comma-separated" /></label>
+					<label>Series <input type="text" bind:value={editForm.series_name} /></label>
+					<label>Series # <input type="text" bind:value={editForm.series_index} placeholder="e.g. 1" /></label>
+					<label>Tags <input type="text" bind:value={editForm.tags} placeholder="Comma-separated" /></label>
+					<label>Language <input type="text" bind:value={editForm.language} /></label>
+					<label>ISBN <input type="text" bind:value={editForm.isbn} /></label>
+					<label>Publisher <input type="text" bind:value={editForm.publisher} /></label>
+					<label>Description <textarea bind:value={editForm.description} rows="5"></textarea></label>
+					{#if saveError}
+						<p class="save-error">{saveError}</p>
+					{/if}
+					<div class="edit-actions">
+						<button type="submit" class="save-btn" disabled={saving}>
+							{saving ? 'Saving…' : 'Save'}
+						</button>
+						<button type="button" class="cancel-btn" onclick={cancelEditing}>Cancel</button>
+					</div>
+				</form>
+			{:else}
+				<div class="meta-header">
+					<h2>{book.title}</h2>
+					<button class="edit-btn" onclick={startEditing}>Edit</button>
 				</div>
+				{#if book.subtitle}
+					<p class="subtitle">{book.subtitle}</p>
+				{/if}
+
+				<dl>
+					{#if (book.authors ?? []).length > 0}
+						<dt>Authors</dt>
+						<dd>
+							{#each book.authors ?? [] as a, i}
+								{#if i > 0}, {/if}
+								<a href="/?author_id={a.id}&author_name={encodeURIComponent(a.name)}">{a.name}</a>
+							{/each}
+						</dd>
+					{/if}
+					{#if book.series}
+						<dt>Series</dt>
+						<dd>
+							<a href="/?series_id={book.series.id}&series_name={encodeURIComponent(book.series.name)}">{book.series.name}</a>
+							{#if book.series_index != null}
+								· #{book.series_index}
+							{/if}
+						</dd>
+					{/if}
+					{#if book.publisher || book.published_at}
+						<dt>Published</dt>
+						<dd>
+							{book.publisher ?? ''}{book.publisher && book.published_at ? ' · ' : ''}{formatDate(book.published_at ?? '')}
+						</dd>
+					{/if}
+					{#if book.language}
+						<dt>Language</dt>
+						<dd>{book.language}</dd>
+					{/if}
+					{#if book.isbn}
+						<dt>ISBN</dt>
+						<dd>{book.isbn}</dd>
+					{/if}
+					{#if (book.tags ?? []).length > 0}
+						<dt>Tags</dt>
+						<dd>
+							{#each book.tags ?? [] as tag}
+								<a class="chip" href="/?tag={encodeURIComponent(tag)}">{tag}</a>
+							{/each}
+						</dd>
+					{/if}
+				</dl>
+
+				{#if book.description}
+					<div class="description">
+						{@html book.description}
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</article>
@@ -378,10 +488,83 @@
 		color: #999;
 		cursor: wait;
 	}
+	.meta-header {
+		display: flex;
+		align-items: baseline;
+		gap: 1rem;
+	}
 	.meta-col h2 {
 		margin: 0 0 0.25rem;
 		font-size: 1.75rem;
 		line-height: 1.2;
+	}
+	.edit-btn {
+		background: none;
+		border: 1px solid #ccc;
+		border-radius: 3px;
+		padding: 0.25rem 0.625rem;
+		font-size: 0.75rem;
+		color: #555;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.edit-btn:hover {
+		border-color: #888;
+		color: #222;
+	}
+	.edit-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+	.edit-form label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: #555;
+	}
+	.edit-form input,
+	.edit-form textarea {
+		padding: 0.4rem 0.5rem;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		font-size: 0.9375rem;
+		font-family: inherit;
+	}
+	.edit-form textarea {
+		resize: vertical;
+	}
+	.edit-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+	.save-btn {
+		padding: 0.5rem 1.25rem;
+		background: #0366d6;
+		color: #fff;
+		border: 0;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		cursor: pointer;
+	}
+	.save-btn:disabled {
+		background: #888;
+		cursor: wait;
+	}
+	.cancel-btn {
+		padding: 0.5rem 1.25rem;
+		background: #f5f5f5;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		cursor: pointer;
+	}
+	.save-error {
+		color: #b00020;
+		font-size: 0.8125rem;
+		margin: 0;
 	}
 	.subtitle {
 		color: #666;

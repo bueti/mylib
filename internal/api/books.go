@@ -145,6 +145,91 @@ func registerBooks(api huma.API, d Deps) {
 		}
 		return &GetBookOutput{Body: toBookDTO(b)}, nil
 	})
+
+	// PATCH /api/books/{id} — update metadata fields. Auth required.
+	type PatchBookInput struct {
+		ID   int64 `path:"id"`
+		Body struct {
+			Title       *string   `json:"title,omitempty"`
+			Subtitle    *string   `json:"subtitle,omitempty"`
+			Description *string   `json:"description,omitempty"`
+			Authors     *[]string `json:"authors,omitempty" doc:"Replaces all authors"`
+			SeriesName  *string   `json:"series_name,omitempty"`
+			SeriesIndex *float64  `json:"series_index,omitempty"`
+			Tags        *[]string `json:"tags,omitempty" doc:"Replaces all tags"`
+			Language    *string   `json:"language,omitempty"`
+			ISBN        *string   `json:"isbn,omitempty"`
+			Publisher   *string   `json:"publisher,omitempty"`
+		}
+	}
+
+	huma.Register(api, huma.Operation{
+		OperationID: "patch-book",
+		Method:      http.MethodPatch,
+		Path:        "/api/books/{id}",
+		Summary:     "Update book metadata",
+		Tags:        []string{"books"},
+	}, func(ctx context.Context, in *PatchBookInput) (*GetBookOutput, error) {
+		u := UserFromContext(ctx)
+		if u == nil {
+			return nil, huma.Error401Unauthorized("login required")
+		}
+		b, err := d.Store.GetBook(ctx, in.ID)
+		if errors.Is(err, library.ErrNotFound) {
+			return nil, huma.Error404NotFound("book not found")
+		}
+		if err != nil {
+			return nil, huma.Error500InternalServerError("get book", err)
+		}
+
+		// Apply non-nil fields.
+		if in.Body.Title != nil {
+			b.Title = *in.Body.Title
+			b.SortTitle = library.SortTitle(b.Title)
+		}
+		if in.Body.Subtitle != nil {
+			b.Subtitle = *in.Body.Subtitle
+		}
+		if in.Body.Description != nil {
+			b.Description = *in.Body.Description
+		}
+		if in.Body.Language != nil {
+			b.Language = *in.Body.Language
+		}
+		if in.Body.ISBN != nil {
+			b.ISBN = *in.Body.ISBN
+		}
+		if in.Body.Publisher != nil {
+			b.Publisher = *in.Body.Publisher
+		}
+		if in.Body.SeriesName != nil {
+			b.SeriesName = *in.Body.SeriesName
+		}
+		if in.Body.SeriesIndex != nil {
+			b.SeriesIndex = in.Body.SeriesIndex
+		}
+		if in.Body.Authors != nil {
+			b.Authors = nil
+			for _, name := range *in.Body.Authors {
+				b.Authors = append(b.Authors, library.Author{
+					Name:     name,
+					SortName: library.SortName(name),
+				})
+			}
+		}
+		if in.Body.Tags != nil {
+			b.Tags = *in.Body.Tags
+		}
+
+		if _, err := d.Store.UpsertBook(ctx, b); err != nil {
+			return nil, huma.Error500InternalServerError("update book", err)
+		}
+		updated, err := d.Store.GetBook(ctx, in.ID)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("reload book", err)
+		}
+		return &GetBookOutput{Body: toBookDTO(updated)}, nil
+	})
 }
 
 // toBookDTO projects a library.Book onto the wire type. Slice fields
