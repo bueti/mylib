@@ -57,7 +57,8 @@ func registerAdmin(r chi.Router, store *library.Store, sc *scanner.Scanner, az *
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"updated": n})
+		orphans, _ := store.CleanOrphanTags(req.Context())
+		writeJSON(w, http.StatusOK, map[string]any{"updated": n, "orphan_tags_removed": orphans})
 	})
 
 	r.With(RequireAuth(store), Authorize(az, "admin", "access")).Post("/api/admin/rescan-metadata", func(w http.ResponseWriter, req *http.Request) {

@@ -28,6 +28,17 @@ func (s *Store) RenormalizeTags(ctx context.Context, normalize func([]string) []
 	return updated, nil
 }
 
+// CleanOrphanTags removes tags from the tags table that are no longer
+// referenced by any book. Returns the number removed.
+func (s *Store) CleanOrphanTags(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM book_tags)`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func tagsEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

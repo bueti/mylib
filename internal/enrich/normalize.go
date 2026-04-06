@@ -3,16 +3,11 @@ package enrich
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // NormalizeSubjects takes raw Open Library/EPUB subjects and returns
-// cleaner, deduplicated genre tags. It:
-//  1. Maps known verbose subjects to canonical short names.
-//  2. Strips common noise prefixes ("Fiction, ", "Juvenile ").
-//  3. Strips trailing qualifiers (", general", ", etc.").
-//  4. Filters out non-genre entries (places, languages, curricula,
-//     overly specific academic labels, meta-tags).
-//  5. Deduplicates case-insensitively.
+// cleaner, deduplicated genre tags.
 func NormalizeSubjects(raw []string) []string {
 	seen := make(map[string]struct{}, len(raw))
 	var out []string
@@ -62,13 +57,14 @@ func cleanSubject(s string) string {
 		" (general)", " -- Fiction",
 		" -- Juvenile fiction",
 		" -- Juvenile literature",
+		", fiction", ", Fiction",
 	} {
 		s = strings.TrimSuffix(s, suffix)
 	}
-	// Strip parenthetical qualifiers like "(fictional works by one author)"
+	// Strip parenthetical qualifiers.
 	s = parenSuffix.ReplaceAllString(s, "")
 	s = strings.TrimSpace(s)
-	// Title-case the first letter if it's lowercase after stripping.
+	// Title-case the first letter.
 	if len(s) > 0 && s[0] >= 'a' && s[0] <= 'z' {
 		s = strings.ToUpper(s[:1]) + s[1:]
 	}
@@ -77,67 +73,145 @@ func cleanSubject(s string) string {
 
 var parenSuffix = regexp.MustCompile(`\s*\([^)]+\)\s*$`)
 
+// looksLikePersonName returns true if the string looks like "Firstname Lastname"
+// (2-3 capitalized words, no common genre words).
+func looksLikePersonName(s string) bool {
+	words := strings.Fields(s)
+	if len(words) < 2 || len(words) > 4 {
+		return false
+	}
+	caps := 0
+	for _, w := range words {
+		if len(w) > 0 && unicode.IsUpper(rune(w[0])) {
+			caps++
+		}
+	}
+	// All words capitalized, none are common genre words.
+	if caps == len(words) {
+		lower := strings.ToLower(s)
+		for _, genre := range []string{
+			"fiction", "science", "fantasy", "horror", "mystery",
+			"romance", "thriller", "drama", "poetry", "history",
+			"philosophy", "psychology", "biography", "adventure",
+			"classic", "literary", "short", "stories", "young",
+			"action", "political", "historical", "computer",
+			"programming", "technology", "self-help", "business",
+		} {
+			if strings.Contains(lower, genre) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func isNoise(s string) bool {
 	lower := strings.ToLower(s)
-	// Exact-match blocklist for common non-genre tags.
 	if _, ok := noiseExact[lower]; ok {
 		return true
 	}
-	// Substring patterns.
 	for _, noise := range noisePatterns {
 		if strings.Contains(lower, noise) {
 			return true
 		}
 	}
-	// Filter entries that are just a language name.
 	if _, ok := languages[lower]; ok {
 		return true
 	}
-	// Filter single-word entries that are too vague.
+	// Person names as tags (e.g. author names).
+	if looksLikePersonName(s) {
+		return true
+	}
+	// Single-word entries that are too vague.
 	if !strings.Contains(s, " ") && len(s) < 5 {
 		return true
 	}
 	return false
 }
 
-// noiseExact is a set of exact (lowercased) tags to drop entirely.
 var noiseExact = map[string]struct{}{
-	"general":                   {},
-	"readers":                   {},
-	"fiction":                   {},
-	"nonfiction":                {},
-	"literature":                {},
-	"novels":                    {},
-	"roman":                     {},
-	"accessible book":           {},
-	"protected daisy":           {},
-	"open_syllabus_project":     {},
-	"open syllabus project":     {},
-	"social life and customs":   {},
-	"social conditions":         {},
-	"social aspects":            {},
-	"interpersonal relations":   {},
-	"man-woman relationships":   {},
-	"young women":               {},
-	"young men":                 {},
-	"teenage boys":              {},
-	"teenage girls":             {},
-	"brothers and sisters":      {},
-	"friendship":                {},
-	"families":                  {},
-	"family":                    {},
-	"orphans":                   {},
-	"missing persons":           {},
-	"conduct of life":           {},
-	"identity":                  {},
-	"coming of age":             {},
-	"bildungsromans":            {},
-	"reading":                   {},
-	"books and reading":         {},
-	"authorship":                {},
+	// Meta / too vague
+	"general":                      {},
+	"readers":                      {},
+	"fiction":                      {},
+	"nonfiction":                   {},
+	"literature":                   {},
+	"novels":                       {},
+	"roman":                        {},
+	"romans":                       {},
+	"development":                  {},
+	"unknown":                      {},
+	"miscellaneous":                {},
+
+	// Archive/library metadata
+	"accessible book":              {},
+	"protected daisy":              {},
+	"open_syllabus_project":        {},
+	"open syllabus project":        {},
+	"internet archive wishlist":    {},
+	"overdrive":                    {},
+
+	// Social/relationships
+	"social life and customs":      {},
+	"social conditions":            {},
+	"social aspects":               {},
+	"interpersonal relations":      {},
+	"man-woman relationships":      {},
+	"young women":                  {},
+	"young men":                    {},
+	"teenage boys":                 {},
+	"teenage girls":                {},
+	"brothers and sisters":         {},
+	"friendship":                   {},
+	"families":                     {},
+	"family":                       {},
+	"family life":                  {},
+	"orphans":                      {},
+	"missing persons":              {},
+	"conduct of life":              {},
+	"identity":                     {},
+	"coming of age":                {},
+	"bildungsromans":               {},
+	"girls":                        {},
+	"boys":                         {},
+	"women":                        {},
+	"men":                          {},
+	"illegitimate children":        {},
+	"inheritance and succession":   {},
+	"monsters":                     {},
+	"totalitarianism":              {},
+
+	// Reading/academic
+	"reading":                      {},
+	"books and reading":            {},
+	"authorship":                   {},
 	"criticism and interpretation": {},
-	"application software":      {},
-	"unknown":                   {},
+	"textual criticism":            {},
+	"application software":         {},
+	"computer software":            {},
+	"text-books for foreigners":    {},
+	"textbooks":                    {},
+
+	// Places (when standalone)
+	"england":                      {},
+	"london":                       {},
+	"france":                       {},
+	"paris":                        {},
+	"america":                      {},
+	"united states":                {},
+	"europe":                       {},
+	"africa":                       {},
+	"india":                        {},
+	"china":                        {},
+	"japan":                        {},
+	"russia":                       {},
+
+	// Publisher names
+	"pragmatic bookshelf":          {},
+	"o'reilly":                     {},
+	"manning":                      {},
+	"packt":                        {},
 }
 
 var noisePatterns = []string{
@@ -167,8 +241,8 @@ var noisePatterns = []string{
 	"bestseller",
 	"fictional works by",
 	"works by one author",
-	"literature 1",  // "French literature 1900", "American literature 1900"
-	"literature 2",  // "American literature 2000"
+	"literature 1",   // "French literature 1900"
+	"literature 2",   // "American literature 2000"
 	"literature, 1",
 	"literature, 2",
 	"history and criticism",
@@ -178,25 +252,34 @@ var noisePatterns = []string{
 	"study and teaching",
 	"problems, exercises",
 	"outlines, syllabi",
+	"juvenile literature",
+	"juvenile fiction",
+	"for foreigners",
+	"text-books",
+	", england",
+	", france",
+	", london",
+	"romans, nouvelles",
 }
 
 var languages = map[string]struct{}{
-	"english":    {},
+	"english":          {},
 	"english language": {},
-	"french":     {},
-	"german":     {},
-	"spanish":    {},
-	"italian":    {},
-	"portuguese": {},
-	"russian":    {},
-	"chinese":    {},
-	"japanese":   {},
-	"arabic":     {},
-	"latin":      {},
-	"greek":      {},
+	"french":           {},
+	"french language":  {},
+	"german":           {},
+	"german language":  {},
+	"spanish":          {},
+	"italian":          {},
+	"portuguese":       {},
+	"russian":          {},
+	"chinese":          {},
+	"japanese":         {},
+	"arabic":           {},
+	"latin":            {},
+	"greek":            {},
 }
 
-// canonicalMap merges verbose OL subjects to clean genre names.
 var canonicalMap = map[string]string{
 	// Fiction sub-genres
 	"fiction, fantasy, general":              "Fantasy",
@@ -229,6 +312,7 @@ var canonicalMap = map[string]string{
 	"fiction, humor":                         "Humor",
 	"fiction, crime":                         "Crime Fiction",
 	"fiction, noir":                          "Noir",
+	"short stories":                          "Short Stories",
 	"domestic fiction":                       "Literary Fiction",
 	"dystopias":                              "Dystopia",
 	"dystopian fiction":                      "Dystopia",
@@ -236,25 +320,30 @@ var canonicalMap = map[string]string{
 	"fantasy fiction":                        "Fantasy",
 	"science fiction":                        "Science Fiction",
 	"science fiction, english":               "Science Fiction",
-	"science fiction & fantasy":              "Science Fiction & Fantasy",
+	"science fiction & fantasy":              "Fantasy & Sci-Fi",
 	"adventure and adventurers":              "Action & Adventure",
+	"american adventure stories":             "Action & Adventure",
 	"spy stories":                            "Spy Fiction",
 	"detective and mystery stories":          "Mystery",
 	"ghost stories":                          "Horror",
 	"horror fiction":                         "Horror",
 	"horror tales":                           "Horror",
+	"horror stories":                         "Horror",
 	"love stories":                           "Romance",
 	"war stories":                            "Military Fiction",
 	"suspense fiction":                       "Thriller",
 	"thriller":                               "Thriller",
 	"thrillers":                              "Thriller",
+	"vampires":                               "Horror",
+	"political":                              "Politics",
 
-	// Classics normalization
+	// Classics
 	"classic":                  "Classics",
+	"classics":                 "Classics",
 	"classic literature":       "Classics",
 	"classical literature":     "Classics",
 
-	// Children's/YA normalization
+	// Children's/YA
 	"juvenile fiction":          "Children's",
 	"children's fiction":        "Children's",
 	"children's stories":        "Children's",
@@ -262,10 +351,12 @@ var canonicalMap = map[string]string{
 	"young adult fiction":       "Young Adult",
 	"young adult literature":    "Young Adult",
 
-	// British/Irish fiction
-	"british and irish fiction":                              "British Fiction",
+	// British fiction
+	"british and irish fiction":                                 "British Fiction",
 	"british and irish fiction (fictional works by one author)": "British Fiction",
-	"english literature":                                     "British Fiction",
+	"english literature":                                        "British Fiction",
+	"english literature 1900":                                   "British Fiction",
+	"english literature 2000":                                   "British Fiction",
 
 	// Non-fiction
 	"philosophy":                 "Philosophy",
@@ -298,11 +389,16 @@ var canonicalMap = map[string]string{
 	"computers":                  "Technology",
 	"computers, general":         "Technology",
 	"technology & engineering":   "Technology",
+	"technology":                 "Technology",
 	"computer science":           "Computer Science",
 	"computer programming":       "Programming",
 	"programming languages (electronic computers)": "Programming",
+	"functional programming languages":             "Programming",
+	"funktionale programmiersprache":                "Programming",
+	"funktionale programmierung":                    "Programming",
 	"software engineering":       "Programming",
 	"web development":            "Programming",
+	"android":                    "Programming",
 	"mathematics":                "Mathematics",
 	"science":                    "Science",
 	"science, general":           "Science",
@@ -323,6 +419,7 @@ var canonicalMap = map[string]string{
 	"literary criticism":                    "Literary Criticism",
 	"literary criticism, general":           "Literary Criticism",
 	"english literature: literary criticism": "Literary Criticism",
+	"textual criticism":                     "Literary Criticism",
 	"drama":                                 "Drama",
 	"drama (dramatic works by one author)":  "Drama",
 	"plays":                                 "Drama",
