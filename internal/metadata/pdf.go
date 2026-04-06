@@ -71,21 +71,23 @@ func extractPDFCover(rs io.ReadSeeker) *Cover {
 	type candidate struct {
 		data     []byte
 		fileType string
-		area     int
+		score    int // pixel area if known, else data size
 	}
 	var best *candidate
 	for _, pageImages := range pages {
 		for _, img := range pageImages {
-			area := img.Width * img.Height
-			if area < 100*100 {
-				continue // skip tiny images (icons, decorations)
-			}
 			data, err := io.ReadAll(&img)
-			if err != nil || len(data) == 0 {
-				continue
+			if err != nil || len(data) < 1000 {
+				continue // skip tiny/empty images
 			}
-			if best == nil || area > best.area {
-				best = &candidate{data: data, fileType: img.FileType, area: area}
+			// pdfcpu sometimes returns 0x0 dimensions for valid images;
+			// fall back to data size as a ranking heuristic.
+			score := img.Width * img.Height
+			if score == 0 {
+				score = len(data)
+			}
+			if best == nil || score > best.score {
+				best = &candidate{data: data, fileType: img.FileType, score: score}
 			}
 		}
 	}
