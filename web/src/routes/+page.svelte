@@ -20,7 +20,7 @@
 	let activeSeries = $state<{ id: number; name: string } | null>(null);
 	let activeTags = $state<string[]>([]);
 	let activeFormat = $state<string | null>(null);
-	let activeSort = $state('-added');
+	let activeSort = $state('title');
 
 	let books = $state<Book[]>([]);
 	let total = $state(0);
@@ -76,7 +76,7 @@
 		activeSeries = sid > 0 ? { id: sid, name: sp.get('series_name') ?? `#${sid}` } : null;
 		activeTags = sp.getAll('tag');
 		activeFormat = sp.get('format');
-		activeSort = sp.get('sort') ?? '-added';
+		activeSort = sp.get('sort') ?? 'title';
 	});
 
 	// Debounced fetch.
