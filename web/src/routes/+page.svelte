@@ -2,29 +2,39 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { client, type Book } from '$lib/api/client';
+	import type { Book } from '$lib/api/client';
 
 	interface RecentEntry {
 		book: Book;
 		progress: { position: string; percent: number };
 	}
+	interface TagCount {
+		name: string;
+		count: number;
+	}
 
-	// Filter state is derived from URL search params so links are
-	// shareable and the browser back button restores prior views.
+	// Filter state derived from URL search params.
 	let query = $state('');
 	let activeAuthor = $state<{ id: number; name: string } | null>(null);
 	let activeSeries = $state<{ id: number; name: string } | null>(null);
-	let activeTag = $state<string | null>(null);
+	let activeTags = $state<string[]>([]);
 	let activeFormat = $state<string | null>(null);
+	let activeSort = $state('-added');
 
 	let books = $state<Book[]>([]);
 	let total = $state(0);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let recent = $state<RecentEntry[]>([]);
+	let allTags = $state<TagCount[]>([]);
+	let sidebarOpen = $state(true);
+
+	// Rescan state.
+	let scanning = $state(false);
+	let scanMessage = $state<string | null>(null);
 
 	onMount(async () => {
-		await loadRecent();
+		await Promise.all([loadRecent(), loadTags()]);
 	});
 
 	async function loadRecent() {
@@ -34,15 +44,22 @@
 			const data = await res.json();
 			recent = (data?.entries ?? []) as RecentEntry[];
 		} catch {
-			// ignore — section stays hidden
+			// ignore
 		}
 	}
 
-	// Rescan state.
-	let scanning = $state(false);
-	let scanMessage = $state<string | null>(null);
+	async function loadTags() {
+		try {
+			const res = await fetch('/api/tags', { credentials: 'same-origin' });
+			if (!res.ok) return;
+			const data = await res.json();
+			allTags = (data?.tags ?? []) as TagCount[];
+		} catch {
+			// ignore
+		}
+	}
 
-	// Sync local state ← URL whenever the URL changes.
+	// Sync local state ← URL.
 	$effect(() => {
 		const sp = page.url.searchParams;
 		query = sp.get('q') ?? '';
@@ -50,20 +67,21 @@
 		activeAuthor = aid > 0 ? { id: aid, name: sp.get('author_name') ?? `#${aid}` } : null;
 		const sid = Number(sp.get('series_id'));
 		activeSeries = sid > 0 ? { id: sid, name: sp.get('series_name') ?? `#${sid}` } : null;
-		activeTag = sp.get('tag');
+		activeTags = sp.getAll('tag');
 		activeFormat = sp.get('format');
+		activeSort = sp.get('sort') ?? '-added';
 	});
 
-	// Debounced fetch whenever any filter changes.
+	// Debounced fetch.
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	$effect(() => {
-		// Re-subscribe to all filter signals so this effect re-runs on change.
 		const snapshot = {
 			q: query,
 			author: activeAuthor?.id,
 			series: activeSeries?.id,
-			tag: activeTag,
-			format: activeFormat
+			tags: activeTags,
+			format: activeFormat,
+			sort: activeSort
 		};
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => load(snapshot), 150);
@@ -74,26 +92,25 @@
 		q: string;
 		author?: number;
 		series?: number;
-		tag?: string | null;
+		tags: string[];
 		format?: string | null;
+		sort: string;
 	}) {
 		loading = true;
 		error = null;
 		try {
-			const { data, error: err, response } = await client.GET('/api/books', {
-				params: {
-					query: {
-						q: f.q || undefined,
-						author_id: f.author || undefined,
-						series_id: f.series || undefined,
-						tag: f.tag || undefined,
-						format: f.format || undefined,
-						limit: 60,
-						sort: '-added'
-					}
-				}
-			});
-			if (err) throw new Error(err.detail || response.statusText);
+			const params = new URLSearchParams();
+			if (f.q) params.set('q', f.q);
+			if (f.author) params.set('author_id', String(f.author));
+			if (f.series) params.set('series_id', String(f.series));
+			for (const t of f.tags) params.append('tag', t);
+			if (f.format) params.set('format', f.format);
+			params.set('sort', f.sort);
+			params.set('limit', '60');
+
+			const res = await fetch('/api/books?' + params.toString(), { credentials: 'same-origin' });
+			if (!res.ok) throw new Error('HTTP ' + res.status);
+			const data = await res.json();
 			books = data?.books ?? [];
 			total = data?.total ?? 0;
 		} catch (e) {
@@ -105,7 +122,6 @@
 		}
 	}
 
-	// Push the current search query into the URL (on user input).
 	function onSearch(e: Event) {
 		const value = (e.target as HTMLInputElement).value;
 		const sp = new URLSearchParams(page.url.searchParams);
@@ -114,7 +130,22 @@
 		goto('/?' + sp.toString(), { keepFocus: true, replaceState: true, noScroll: true });
 	}
 
-	function clearFilter(key: 'author_id' | 'series_id' | 'tag' | 'format' | 'q') {
+	function toggleTag(tag: string) {
+		const sp = new URLSearchParams(page.url.searchParams);
+		const current = sp.getAll('tag');
+		sp.delete('tag');
+		if (current.includes(tag)) {
+			for (const t of current) {
+				if (t !== tag) sp.append('tag', t);
+			}
+		} else {
+			for (const t of current) sp.append('tag', t);
+			sp.append('tag', tag);
+		}
+		goto('/?' + sp.toString(), { keepFocus: true, replaceState: false, noScroll: true });
+	}
+
+	function clearFilter(key: string) {
 		const sp = new URLSearchParams(page.url.searchParams);
 		sp.delete(key);
 		if (key === 'author_id') sp.delete('author_name');
@@ -122,13 +153,26 @@
 		goto('/?' + sp.toString(), { keepFocus: true, replaceState: false });
 	}
 
+	function setSort(s: string) {
+		const sp = new URLSearchParams(page.url.searchParams);
+		sp.set('sort', s);
+		goto('/?' + sp.toString(), { keepFocus: true, replaceState: true, noScroll: true });
+	}
+
+	let hasFilters = $derived(
+		activeTags.length > 0 || activeAuthor || activeSeries || activeFormat || query
+	);
+
 	async function rescan() {
 		scanning = true;
 		scanMessage = 'Starting scan…';
 		try {
-			const { data: job, error: err } = await client.POST('/api/scan');
-			if (err || !job) throw new Error('Failed to start scan');
-			// Stream live job updates via SSE instead of polling.
+			const triggerRes = await fetch('/api/scan', {
+				method: 'POST',
+				credentials: 'same-origin'
+			});
+			if (!triggerRes.ok) throw new Error('Failed to start scan');
+			const job = await triggerRes.json();
 			await new Promise<void>((resolve) => {
 				const es = new EventSource(`/api/scan/${job.id}/events`);
 				es.addEventListener('job', (e) => {
@@ -150,9 +194,16 @@
 					resolve();
 				};
 			});
-			// Refresh the list once the scan finishes.
-			load({ q: query, author: activeAuthor?.id, series: activeSeries?.id, tag: activeTag, format: activeFormat });
+			load({
+				q: query,
+				author: activeAuthor?.id,
+				series: activeSeries?.id,
+				tags: activeTags,
+				format: activeFormat,
+				sort: activeSort
+			});
 			void loadRecent();
+			void loadTags();
 		} catch (e) {
 			scanMessage = e instanceof Error ? e.message : 'Scan failed';
 		} finally {
@@ -162,122 +213,262 @@
 	}
 </script>
 
-<div class="toolbar">
-	<input
-		type="search"
-		placeholder="Search title, author, series…"
-		value={query}
-		oninput={onSearch}
-		aria-label="Search"
-	/>
-	<button onclick={rescan} disabled={scanning} class="rescan">
-		{scanning ? 'Scanning…' : 'Rescan'}
-	</button>
-	<span class="count">{total} {total === 1 ? 'book' : 'books'}</span>
-</div>
+<div class="layout" class:sidebar-visible={sidebarOpen && allTags.length > 0}>
+	<!-- Tag sidebar -->
+	{#if allTags.length > 0}
+		<aside class="sidebar" class:open={sidebarOpen}>
+			<header>
+				<span>Genres & Topics</span>
+				<button onclick={() => (sidebarOpen = false)} aria-label="Close sidebar">×</button>
+			</header>
+			<ul>
+				{#each allTags as tag (tag.name)}
+					<li>
+						<button
+							class:active={activeTags.includes(tag.name)}
+							onclick={() => toggleTag(tag.name)}
+						>
+							<span class="tag-name">{tag.name}</span>
+							<span class="tag-count">{tag.count}</span>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		</aside>
+	{/if}
 
-{#if scanMessage}
-	<p class="scan-msg">{scanMessage}</p>
-{/if}
+	<div class="main">
+		<div class="toolbar">
+			{#if allTags.length > 0 && !sidebarOpen}
+				<button class="sidebar-toggle" onclick={() => (sidebarOpen = true)} title="Show genres">☰</button>
+			{/if}
+			<input
+				type="search"
+				placeholder="Search title, author, series, genre…"
+				value={query}
+				oninput={onSearch}
+				aria-label="Search"
+			/>
+			<select value={activeSort} onchange={(e) => setSort((e.target as HTMLSelectElement).value)}>
+				<option value="-added">Recently added</option>
+				<option value="title">Title A–Z</option>
+				<option value="-title">Title Z–A</option>
+				<option value="added">Oldest first</option>
+			</select>
+			<button onclick={rescan} disabled={scanning} class="rescan">
+				{scanning ? 'Scanning…' : 'Rescan'}
+			</button>
+			<span class="count">{total} {total === 1 ? 'book' : 'books'}</span>
+		</div>
 
-{#if recent.length > 0}
-	<section class="continue">
-		<h2>Continue reading</h2>
-		<ul class="row">
-			{#each recent as entry (entry.book.id)}
-				<li>
-					<a href="/books/{entry.book.id}/read" class="recent-card">
-						{#if entry.book.has_cover}
-							<img src="/api/books/{entry.book.id}/cover" alt="" loading="lazy" />
-						{:else}
-							<div class="placeholder">{entry.book.title.charAt(0)}</div>
-						{/if}
-						<div class="progress-bar">
-							<div
-								class="progress-fill"
-								style:width="{Math.max(2, Math.round(entry.progress.percent * 100))}%"
-							></div>
+		{#if scanMessage}
+			<p class="scan-msg">{scanMessage}</p>
+		{/if}
+
+		{#if activeAuthor || activeSeries || activeTags.length > 0 || activeFormat}
+			<div class="chips">
+				<span class="chips-label">Filters:</span>
+				{#if activeAuthor}
+					<button class="chip" onclick={() => clearFilter('author_id')}>
+						Author: {activeAuthor.name} ✕
+					</button>
+				{/if}
+				{#if activeSeries}
+					<button class="chip" onclick={() => clearFilter('series_id')}>
+						Series: {activeSeries.name} ✕
+					</button>
+				{/if}
+				{#each activeTags as tag}
+					<button class="chip" onclick={() => toggleTag(tag)}>
+						{tag} ✕
+					</button>
+				{/each}
+				{#if activeFormat}
+					<button class="chip" onclick={() => clearFilter('format')}>
+						Format: {activeFormat} ✕
+					</button>
+				{/if}
+			</div>
+		{/if}
+
+		{#if error}
+			<p class="error">Error: {error}</p>
+		{/if}
+
+		{#if recent.length > 0}
+			<section class="continue">
+				<h2>Continue reading</h2>
+				<ul class="row">
+					{#each recent as entry (entry.book.id)}
+						<li>
+							<a href="/books/{entry.book.id}/read" class="recent-card">
+								{#if entry.book.has_cover}
+									<img src="/api/books/{entry.book.id}/cover" alt="" loading="lazy" />
+								{:else}
+									<div class="placeholder">{entry.book.title.charAt(0)}</div>
+								{/if}
+								<div class="progress-bar">
+									<div
+										class="progress-fill"
+										style:width="{Math.max(2, Math.round(entry.progress.percent * 100))}%"
+									></div>
+								</div>
+								<div class="recent-title" title={entry.book.title}>{entry.book.title}</div>
+							</a>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
+
+		<!-- Browse by genre section (shown when no active filters) -->
+		{#if !hasFilters && allTags.length > 0}
+			<section class="browse">
+				<h2>Browse by genre</h2>
+				<div class="genre-grid">
+					{#each allTags.slice(0, 20) as tag (tag.name)}
+						<button class="genre-card" onclick={() => toggleTag(tag.name)}>
+							<span class="genre-name">{tag.name}</span>
+							<span class="genre-count">{tag.count} {tag.count === 1 ? 'book' : 'books'}</span>
+						</button>
+					{/each}
+				</div>
+			</section>
+		{/if}
+
+		{#if loading && books.length === 0}
+			<p>Loading…</p>
+		{:else if books.length === 0}
+			<p class="empty">
+				No books match. Point MYLIB_LIBRARY_ROOTS at a directory of EPUBs or PDFs and hit
+				<button class="link" onclick={rescan}>Rescan</button>.
+			</p>
+		{:else}
+			<ul class="grid">
+				{#each books as book (book.id)}
+					<li class="card">
+						<a href="/books/{book.id}" class="cover">
+							{#if book.has_cover}
+								<img src="/api/books/{book.id}/cover" alt="" loading="lazy" />
+							{:else}
+								<div class="placeholder">{book.title.charAt(0)}</div>
+							{/if}
+						</a>
+						<div class="meta">
+							<a href="/books/{book.id}" class="title" title={book.title}>{book.title}</a>
+							<div class="authors">
+								{(book.authors ?? []).map((a) => a.name).join(', ') || '—'}
+							</div>
 						</div>
-						<div class="recent-title" title={entry.book.title}>{entry.book.title}</div>
-					</a>
-				</li>
-			{/each}
-		</ul>
-	</section>
-{/if}
-
-{#if activeAuthor || activeSeries || activeTag || activeFormat}
-	<div class="chips">
-		<span class="chips-label">Filters:</span>
-		{#if activeAuthor}
-			<button class="chip" onclick={() => clearFilter('author_id')}>
-				Author: {activeAuthor.name} ✕
-			</button>
-		{/if}
-		{#if activeSeries}
-			<button class="chip" onclick={() => clearFilter('series_id')}>
-				Series: {activeSeries.name} ✕
-			</button>
-		{/if}
-		{#if activeTag}
-			<button class="chip" onclick={() => clearFilter('tag')}>
-				Tag: {activeTag} ✕
-			</button>
-		{/if}
-		{#if activeFormat}
-			<button class="chip" onclick={() => clearFilter('format')}>
-				Format: {activeFormat} ✕
-			</button>
+					</li>
+				{/each}
+			</ul>
 		{/if}
 	</div>
-{/if}
-
-{#if error}
-	<p class="error">Error: {error}</p>
-{/if}
-
-{#if loading && books.length === 0}
-	<p>Loading…</p>
-{:else if books.length === 0}
-	<p class="empty">
-		No books match. Point MYLIB_LIBRARY_ROOTS at a directory of EPUBs or PDFs and hit
-		<button class="link" onclick={rescan}>Rescan</button>.
-	</p>
-{:else}
-	<ul class="grid">
-		{#each books as book (book.id)}
-			<li class="card">
-				<a href="/books/{book.id}" class="cover">
-					{#if book.has_cover}
-						<img src="/api/books/{book.id}/cover" alt="" loading="lazy" />
-					{:else}
-						<div class="placeholder">{book.title.charAt(0)}</div>
-					{/if}
-				</a>
-				<div class="meta">
-					<a href="/books/{book.id}" class="title" title={book.title}>{book.title}</a>
-					<div class="authors">
-						{(book.authors ?? []).map((a) => a.name).join(', ') || '—'}
-					</div>
-				</div>
-			</li>
-		{/each}
-	</ul>
-{/if}
+</div>
 
 <style>
+	.layout {
+		display: flex;
+		gap: 0;
+		margin: -2rem;
+		min-height: calc(100vh - 60px);
+	}
+	.sidebar {
+		flex: 0 0 240px;
+		width: 240px;
+		background: #fff;
+		border-right: 1px solid #e5e5e5;
+		overflow-y: auto;
+		display: none;
+	}
+	.layout.sidebar-visible .sidebar {
+		display: block;
+	}
+	.sidebar header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem;
+		font-weight: 600;
+		font-size: 0.875rem;
+		border-bottom: 1px solid #eee;
+		position: sticky;
+		top: 0;
+		background: #fff;
+	}
+	.sidebar header button {
+		background: none;
+		border: 0;
+		font-size: 1.25rem;
+		cursor: pointer;
+		color: #666;
+	}
+	.sidebar ul {
+		list-style: none;
+		padding: 0.25rem 0;
+		margin: 0;
+	}
+	.sidebar button {
+		width: 100%;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.375rem 1rem;
+		background: none;
+		border: 0;
+		font-size: 0.8125rem;
+		color: #333;
+		cursor: pointer;
+		text-align: left;
+	}
+	.sidebar button:hover {
+		background: #f5f5f5;
+	}
+	.sidebar button.active {
+		background: #eef;
+		font-weight: 600;
+		color: #0366d6;
+	}
+	.tag-count {
+		color: #999;
+		font-size: 0.75rem;
+	}
+	.main {
+		flex: 1;
+		padding: 2rem;
+		min-width: 0;
+		max-width: 1200px;
+	}
 	.toolbar {
 		display: flex;
-		gap: 1rem;
+		gap: 0.75rem;
 		align-items: center;
 		margin-bottom: 1rem;
+		flex-wrap: wrap;
+	}
+	.sidebar-toggle {
+		background: transparent;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		padding: 0.375rem 0.5rem;
+		cursor: pointer;
+		font-size: 1rem;
 	}
 	input[type='search'] {
 		flex: 1;
+		min-width: 200px;
 		padding: 0.5rem 0.75rem;
 		font-size: 1rem;
 		border: 1px solid #ccc;
 		border-radius: 4px;
+		background: #fff;
+	}
+	select {
+		padding: 0.5rem 0.625rem;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		font-size: 0.875rem;
 		background: #fff;
 	}
 	.rescan {
@@ -300,10 +491,62 @@
 		color: #666;
 		font-size: 0.875rem;
 	}
+	.scan-msg {
+		margin: 0 0 1rem;
+		padding: 0.5rem 0.75rem;
+		background: #f0f7ff;
+		border-left: 3px solid #0366d6;
+		font-size: 0.875rem;
+		color: #0366d6;
+	}
+	.chips {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-bottom: 1.25rem;
+	}
+	.chips-label {
+		color: #666;
+		font-size: 0.875rem;
+	}
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.25rem 0.625rem;
+		background: #eef;
+		border: 0;
+		border-radius: 12px;
+		font-size: 0.8125rem;
+		color: #224;
+		cursor: pointer;
+	}
+	.chip:hover {
+		background: #dde;
+	}
+	.error {
+		color: #b00020;
+	}
+	.empty {
+		color: #666;
+		line-height: 1.5;
+	}
+	.empty .link {
+		background: none;
+		border: 0;
+		padding: 0;
+		color: #0366d6;
+		cursor: pointer;
+		text-decoration: underline;
+		font: inherit;
+	}
+	/* Continue reading */
 	.continue {
 		margin: 0 0 2rem;
 	}
-	.continue h2 {
+	.continue h2,
+	.browse h2 {
 		font-size: 0.9375rem;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -357,56 +600,38 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.scan-msg {
-		margin: 0 0 1rem;
-		padding: 0.5rem 0.75rem;
-		background: #f0f7ff;
-		border-left: 3px solid #0366d6;
-		font-size: 0.875rem;
-		color: #0366d6;
+	/* Browse by genre */
+	.browse {
+		margin: 0 0 2rem;
 	}
-	.chips {
+	.genre-grid {
 		display: flex;
-		align-items: center;
-		gap: 0.5rem;
 		flex-wrap: wrap;
-		margin-bottom: 1.25rem;
+		gap: 0.5rem;
 	}
-	.chips-label {
-		color: #666;
-		font-size: 0.875rem;
-	}
-	.chip {
-		display: inline-flex;
+	.genre-card {
+		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 0.375rem;
-		padding: 0.25rem 0.625rem;
-		background: #eef;
-		border: 0;
-		border-radius: 12px;
+		padding: 0.5rem 1rem;
+		background: #fff;
+		border: 1px solid #e0e0e0;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: border-color 0.1s;
+	}
+	.genre-card:hover {
+		border-color: #0366d6;
+	}
+	.genre-name {
+		font-weight: 600;
 		font-size: 0.8125rem;
-		color: #224;
-		cursor: pointer;
 	}
-	.chip:hover {
-		background: #dde;
+	.genre-count {
+		font-size: 0.6875rem;
+		color: #888;
 	}
-	.error {
-		color: #b00020;
-	}
-	.empty {
-		color: #666;
-		line-height: 1.5;
-	}
-	.empty .link {
-		background: none;
-		border: 0;
-		padding: 0;
-		color: #0366d6;
-		cursor: pointer;
-		text-decoration: underline;
-		font: inherit;
-	}
+	/* Book grid */
 	.grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -433,7 +658,7 @@
 		object-fit: cover;
 		display: block;
 	}
-	.placeholder {
+	.cover .placeholder {
 		width: 100%;
 		height: 100%;
 		display: flex;
@@ -470,5 +695,16 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	@media (max-width: 768px) {
+		.sidebar {
+			display: none !important;
+		}
+		.layout {
+			margin: 0;
+		}
+		.main {
+			padding: 1rem;
+		}
 	}
 </style>

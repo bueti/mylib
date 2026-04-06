@@ -49,7 +49,7 @@ type BookFilter struct {
 	AuthorID     *int64
 	SeriesID     *int64
 	CollectionID *int64
-	Tag          string
+	Tags         []string
 	Format       string
 	Sort         string // "title", "added", "-added" (prefix '-' reverses)
 	Limit        int

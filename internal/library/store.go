@@ -215,9 +215,12 @@ func (s *Store) ListBooks(ctx context.Context, f BookFilter) ([]*Book, int, erro
 		where = append(where, "b.id IN (SELECT book_id FROM collection_books WHERE collection_id = ?)")
 		args = append(args, *f.CollectionID)
 	}
-	if f.Tag != "" {
-		where = append(where, "b.id IN (SELECT bt.book_id FROM book_tags bt JOIN tags t ON t.id = bt.tag_id WHERE t.name = ?)")
-		args = append(args, f.Tag)
+	if len(f.Tags) > 0 {
+		// AND semantics: book must have ALL specified tags.
+		for _, tag := range f.Tags {
+			where = append(where, "b.id IN (SELECT bt.book_id FROM book_tags bt JOIN tags t ON t.id = bt.tag_id WHERE t.name = ?)")
+			args = append(args, tag)
+		}
 	}
 	if f.Format != "" {
 		where = append(where, "b.format = ?")
@@ -319,6 +322,12 @@ func (s *Store) ListSeries(ctx context.Context) ([]Series, error) {
 	return out, rows.Err()
 }
 
+// TagCount pairs a tag name with the number of active books using it.
+type TagCount struct {
+	Name  string
+	Count int
+}
+
 // ListTags returns all tags sorted by name.
 func (s *Store) ListTags(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT name FROM tags ORDER BY name`)
@@ -333,6 +342,31 @@ func (s *Store) ListTags(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// ListTagsWithCounts returns tags with active book counts, sorted by
+// count descending (most-used first).
+func (s *Store) ListTagsWithCounts(ctx context.Context) ([]TagCount, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.name, COUNT(DISTINCT bt.book_id) AS cnt
+		FROM tags t
+		JOIN book_tags bt ON bt.tag_id = t.id
+		JOIN books b ON b.id = bt.book_id AND b.deleted_at IS NULL
+		GROUP BY t.name
+		ORDER BY cnt DESC, t.name ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TagCount
+	for rows.Next() {
+		var tc TagCount
+		if err := rows.Scan(&tc.Name, &tc.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, tc)
 	}
 	return out, rows.Err()
 }

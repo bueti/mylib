@@ -22,9 +22,15 @@ type ListSeriesOutput struct {
 }
 
 // ListTagsOutput is the response for GET /tags.
+// TagDTO returns a tag name with its book count.
+type TagDTO struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
 type ListTagsOutput struct {
 	Body struct {
-		Tags []string `json:"tags"`
+		Tags []TagDTO `json:"tags"`
 	}
 }
 
@@ -74,14 +80,14 @@ func registerTaxonomy(api huma.API, d Deps) {
 		Summary:     "List all tags",
 		Tags:        []string{"taxonomy"},
 	}, func(ctx context.Context, _ *struct{}) (*ListTagsOutput, error) {
-		ts, err := d.Store.ListTags(ctx)
+		ts, err := d.Store.ListTagsWithCounts(ctx)
 		if err != nil {
 			return nil, huma.Error500InternalServerError("list tags", err)
 		}
 		out := &ListTagsOutput{}
-		out.Body.Tags = ts
-		if out.Body.Tags == nil {
-			out.Body.Tags = []string{}
+		out.Body.Tags = make([]TagDTO, 0, len(ts))
+		for _, t := range ts {
+			out.Body.Tags = append(out.Body.Tags, TagDTO{Name: t.Name, Count: t.Count})
 		}
 		return out, nil
 	})

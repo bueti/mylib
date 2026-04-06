@@ -15,6 +15,8 @@
 	let collectionsMenuOpen = $state(false);
 	let addingTo = $state<number | null>(null);
 	let addStatus = $state<string | null>(null);
+	let enriching = $state(false);
+	let enrichStatus = $state<string | null>(null);
 
 	$effect(() => {
 		const id = Number(page.params.id);
@@ -49,6 +51,28 @@
 		} finally {
 			addingTo = null;
 			setTimeout(() => (addStatus = null), 3000);
+		}
+	}
+
+	async function refreshMetadata() {
+		if (!book || enriching) return;
+		enriching = true;
+		enrichStatus = null;
+		try {
+			const res = await fetch(`/api/books/${book.id}/enrich`, {
+				method: 'POST',
+				credentials: 'same-origin'
+			});
+			if (!res.ok) throw new Error(await res.text());
+			enrichStatus = 'Metadata refreshed';
+			// Reload book to show updated fields.
+			const id = book.id;
+			load(id);
+		} catch (e) {
+			enrichStatus = e instanceof Error ? e.message : 'Failed to refresh';
+		} finally {
+			enriching = false;
+			setTimeout(() => (enrichStatus = null), 4000);
 		}
 	}
 
@@ -148,6 +172,13 @@
 			</div>
 			{#if addStatus}
 				<p class="add-status">{addStatus}</p>
+			{/if}
+
+			<button class="refresh-btn" onclick={refreshMetadata} disabled={enriching}>
+				{enriching ? 'Refreshing…' : 'Refresh metadata'}
+			</button>
+			{#if enrichStatus}
+				<p class="add-status">{enrichStatus}</p>
 			{/if}
 		</div>
 
@@ -328,6 +359,24 @@
 		margin: 0.25rem 0 0;
 		font-size: 0.75rem;
 		color: #0366d6;
+	}
+	.refresh-btn {
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		background: #f5f5f5;
+		color: #333;
+		border: 1px solid #ccc;
+		border-radius: 4px;
+		font-size: 0.8125rem;
+		cursor: pointer;
+	}
+	.refresh-btn:hover:not(:disabled) {
+		border-color: #888;
+		background: #eee;
+	}
+	.refresh-btn:disabled {
+		color: #999;
+		cursor: wait;
 	}
 	.meta-col h2 {
 		margin: 0 0 0.25rem;

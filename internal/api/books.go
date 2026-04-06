@@ -46,15 +46,15 @@ type SeriesDTO struct {
 
 // ListBooksInput is the query for GET /books.
 type ListBooksInput struct {
-	Q            string `query:"q" doc:"Full-text search query"`
-	AuthorID     int64  `query:"author_id" doc:"Filter by author id"`
-	SeriesID     int64  `query:"series_id" doc:"Filter by series id"`
-	CollectionID int64  `query:"collection_id" doc:"Filter by collection id"`
-	Tag          string `query:"tag" doc:"Filter by tag name"`
-	Format       string `query:"format" doc:"Filter by format (epub, pdf, mobi, azw3)"`
-	Sort         string `query:"sort" doc:"Sort key: title, -title, added, -added" enum:"title,-title,added,-added"`
-	Limit        int    `query:"limit" doc:"Page size (max 500)" default:"50" minimum:"1" maximum:"500"`
-	Offset       int    `query:"offset" doc:"Page offset" minimum:"0"`
+	Q            string   `query:"q" doc:"Full-text search query"`
+	AuthorID     int64    `query:"author_id" doc:"Filter by author id"`
+	SeriesID     int64    `query:"series_id" doc:"Filter by series id"`
+	CollectionID int64    `query:"collection_id" doc:"Filter by collection id"`
+	Tag          []string `query:"tag" doc:"Filter by tag(s); multiple tags are ANDed"`
+	Format       string   `query:"format" doc:"Filter by format (epub, pdf, mobi, azw3)"`
+	Sort         string   `query:"sort" doc:"Sort key: title, -title, added, -added" enum:"title,-title,added,-added"`
+	Limit        int      `query:"limit" doc:"Page size (max 500)" default:"50" minimum:"1" maximum:"500"`
+	Offset       int      `query:"offset" doc:"Page offset" minimum:"0"`
 }
 
 // ListBooksOutput is the response for GET /books.
@@ -87,7 +87,7 @@ func registerBooks(api huma.API, d Deps) {
 	}, func(ctx context.Context, in *ListBooksInput) (*ListBooksOutput, error) {
 		filter := library.BookFilter{
 			Query:  in.Q,
-			Tag:    in.Tag,
+			Tags:   in.Tag,
 			Format: in.Format,
 			Sort:   in.Sort,
 			Limit:  in.Limit,
