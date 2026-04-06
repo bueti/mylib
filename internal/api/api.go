@@ -49,7 +49,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerCollections(api, deps)
 	registerFileRoutes(r, deps)
 	registerSSE(r, deps)
-	registerAdmin(r, deps.Store)
+	registerAdmin(r, deps.Store, deps.Scanner)
 	if deps.Enricher != nil {
 		registerEnrich(r, deps.Store, deps.Enricher)
 	}

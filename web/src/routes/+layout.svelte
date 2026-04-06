@@ -42,7 +42,7 @@
 			<a href="/">Books</a>
 			<a href="/collections">Collections</a>
 			{#if session.isAdmin}
-				<a href="/admin/duplicates">Duplicates</a>
+				<a href="/admin/duplicates">Admin</a>
 			{/if}
 		</nav>
 		<div class="user">

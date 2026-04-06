@@ -60,12 +60,13 @@ func (e *Enricher) EnrichBook(ctx context.Context, bookID int64) (bool, error) {
 		changed = true
 	}
 
-	// Merge subjects into tags (deduped against existing).
+	// Normalize + merge subjects into tags (deduped against existing).
+	normalized := NormalizeSubjects(result.Subjects)
 	existingTags := make(map[string]struct{}, len(b.Tags))
 	for _, t := range b.Tags {
 		existingTags[strings.ToLower(t)] = struct{}{}
 	}
-	for _, s := range result.Subjects {
+	for _, s := range normalized {
 		if _, ok := existingTags[strings.ToLower(s)]; !ok {
 			b.Tags = append(b.Tags, s)
 			existingTags[strings.ToLower(s)] = struct{}{}

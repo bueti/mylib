@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/bueti/mylib/internal/covers"
+	"github.com/bueti/mylib/internal/enrich"
 	"github.com/bueti/mylib/internal/library"
 	"github.com/bueti/mylib/internal/metadata"
 )
@@ -109,6 +110,63 @@ func (s *Scanner) closeSubs(jobID int64) {
 	delete(s.subs, jobID)
 	// Keep lastJob around briefly for late subscribers.
 	delete(s.lastJob, jobID)
+}
+
+// ForceRescan re-extracts metadata for every known book, regardless
+// of mtime. Useful after upgrading the metadata parser (e.g. adding
+// subject extraction). Runs synchronously.
+func (s *Scanner) ForceRescan(ctx context.Context) (int, error) {
+	books, _, err := s.store.ListBooks(ctx, library.BookFilter{Limit: 50_000})
+	if err != nil {
+		return 0, err
+	}
+	updated := 0
+	for _, b := range books {
+		md, err := metadata.Extract(b.Path)
+		if err != nil {
+			slog.Warn("force rescan: extract failed", "path", b.Path, "err", err)
+			continue
+		}
+		changed := false
+		// Fill empty description.
+		if b.Description == "" && md.Description != "" {
+			b.Description = md.Description
+			changed = true
+		}
+		// Merge new subjects into tags.
+		existing := make(map[string]struct{}, len(b.Tags))
+		for _, t := range b.Tags {
+			existing[strings.ToLower(t)] = struct{}{}
+		}
+		for _, subj := range enrich.NormalizeSubjects(md.Subjects) {
+			if _, ok := existing[strings.ToLower(subj)]; !ok {
+				b.Tags = append(b.Tags, subj)
+				existing[strings.ToLower(subj)] = struct{}{}
+				changed = true
+			}
+		}
+		// Fill empty series.
+		if b.SeriesName == "" && md.Series != "" {
+			b.SeriesName = md.Series
+			changed = true
+		}
+		// Extract cover if missing.
+		if b.CoverPath == "" && md.Cover != nil && s.covers != nil {
+			rel, err := s.covers.Store(b.ContentHash, md.Cover.Data, md.Cover.MIMEType)
+			if err == nil {
+				b.CoverPath = rel
+				changed = true
+			}
+		}
+		if changed {
+			if _, err := s.store.UpsertBook(ctx, b); err != nil {
+				slog.Warn("force rescan: upsert failed", "path", b.Path, "err", err)
+				continue
+			}
+			updated++
+		}
+	}
+	return updated, nil
 }
 
 // ScanAll runs a full scan across all configured roots and returns
@@ -324,7 +382,7 @@ func buildBook(path string, st os.FileInfo, hash string, md *metadata.Metadata, 
 			SortName: library.SortName(name),
 		})
 	}
-	b.Tags = append(b.Tags, md.Subjects...)
+	b.Tags = append(b.Tags, enrich.NormalizeSubjects(md.Subjects)...)
 	return b
 }
 

@@ -19,6 +19,44 @@
 	let groups = $state<Group[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let actionRunning = $state('');
+	let actionResult = $state<string | null>(null);
+
+	async function rescanMetadata() {
+		actionRunning = 'rescan';
+		actionResult = null;
+		try {
+			const res = await fetch('/api/admin/rescan-metadata', {
+				method: 'POST',
+				credentials: 'same-origin'
+			});
+			if (!res.ok) throw new Error(await res.text());
+			const data = await res.json();
+			actionResult = `Rescan complete: ${data.updated} books updated`;
+		} catch (e) {
+			actionResult = e instanceof Error ? e.message : 'Failed';
+		} finally {
+			actionRunning = '';
+		}
+	}
+
+	async function enrichAll() {
+		actionRunning = 'enrich';
+		actionResult = null;
+		try {
+			const res = await fetch('/api/admin/enrich-all', {
+				method: 'POST',
+				credentials: 'same-origin'
+			});
+			if (!res.ok) throw new Error(await res.text());
+			const data = await res.json();
+			actionResult = `Enrichment complete: ${data.enriched} books updated`;
+		} catch (e) {
+			actionResult = e instanceof Error ? e.message : 'Failed';
+		} finally {
+			actionRunning = '';
+		}
+	}
 
 	onMount(async () => {
 		try {
@@ -39,7 +77,21 @@
 	}
 </script>
 
-<h2>Duplicate candidates</h2>
+<h2>Admin</h2>
+
+<div class="admin-actions">
+	<button onclick={rescanMetadata} disabled={!!actionRunning}>
+		{actionRunning === 'rescan' ? 'Rescanning…' : 'Rescan embedded metadata'}
+	</button>
+	<button onclick={enrichAll} disabled={!!actionRunning}>
+		{actionRunning === 'enrich' ? 'Enriching…' : 'Enrich all from Open Library'}
+	</button>
+	{#if actionResult}
+		<p class="result">{actionResult}</p>
+	{/if}
+</div>
+
+<h3>Duplicate candidates</h3>
 <p class="note">Books grouped by shared ISBN or matching title + author. Resolve by deleting the unwanted file on disk, then clicking Rescan on the home page.</p>
 
 {#if loading}
@@ -79,7 +131,38 @@
 
 <style>
 	h2 {
-		margin: 0 0 0.5rem;
+		margin: 0 0 1rem;
+	}
+	h3 {
+		margin: 2rem 0 0.5rem;
+	}
+	.admin-actions {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+		flex-wrap: wrap;
+		margin-bottom: 1rem;
+	}
+	.admin-actions button {
+		padding: 0.5rem 1rem;
+		background: #0366d6;
+		color: #fff;
+		border: 0;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		cursor: pointer;
+	}
+	.admin-actions button:hover:not(:disabled) {
+		background: #0256b9;
+	}
+	.admin-actions button:disabled {
+		background: #888;
+		cursor: wait;
+	}
+	.result {
+		font-size: 0.875rem;
+		color: #0366d6;
+		margin: 0;
 	}
 	.note {
 		color: #666;

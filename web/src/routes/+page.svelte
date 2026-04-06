@@ -29,6 +29,9 @@
 	let allTags = $state<TagCount[]>([]);
 	let sidebarOpen = $state(true);
 
+	// Only show tags with 2+ books in the sidebar to reduce noise.
+	let sidebarTags = $derived(allTags.filter((t) => t.count >= 2));
+
 	// Rescan state.
 	let scanning = $state(false);
 	let scanMessage = $state<string | null>(null);
@@ -213,16 +216,16 @@
 	}
 </script>
 
-<div class="layout" class:sidebar-visible={sidebarOpen && allTags.length > 0}>
+<div class="layout" class:sidebar-visible={sidebarOpen && sidebarTags.length > 0}>
 	<!-- Tag sidebar -->
-	{#if allTags.length > 0}
+	{#if sidebarTags.length > 0}
 		<aside class="sidebar" class:open={sidebarOpen}>
 			<header>
 				<span>Genres & Topics</span>
 				<button onclick={() => (sidebarOpen = false)} aria-label="Close sidebar">×</button>
 			</header>
 			<ul>
-				{#each allTags as tag (tag.name)}
+				{#each sidebarTags as tag (tag.name)}
 					<li>
 						<button
 							class:active={activeTags.includes(tag.name)}
@@ -322,11 +325,11 @@
 		{/if}
 
 		<!-- Browse by genre section (shown when no active filters) -->
-		{#if !hasFilters && allTags.length > 0}
+		{#if !hasFilters && sidebarTags.length > 0}
 			<section class="browse">
 				<h2>Browse by genre</h2>
 				<div class="genre-grid">
-					{#each allTags.slice(0, 20) as tag (tag.name)}
+					{#each sidebarTags.slice(0, 20) as tag (tag.name)}
 						<button class="genre-card" onclick={() => toggleTag(tag.name)}>
 							<span class="genre-name">{tag.name}</span>
 							<span class="genre-count">{tag.count} {tag.count === 1 ? 'book' : 'books'}</span>
