@@ -216,11 +216,13 @@ func (s *Store) ListBooks(ctx context.Context, f BookFilter) ([]*Book, int, erro
 		args = append(args, *f.CollectionID)
 	}
 	if len(f.Tags) > 0 {
-		// AND semantics: book must have ALL specified tags.
-		for _, tag := range f.Tags {
-			where = append(where, "b.id IN (SELECT bt.book_id FROM book_tags bt JOIN tags t ON t.id = bt.tag_id WHERE t.name = ?)")
+		// OR semantics: book must have ANY of the specified tags.
+		placeholders := make([]string, len(f.Tags))
+		for i, tag := range f.Tags {
+			placeholders[i] = "?"
 			args = append(args, tag)
 		}
+		where = append(where, "b.id IN (SELECT bt.book_id FROM book_tags bt JOIN tags t ON t.id = bt.tag_id WHERE t.name IN ("+strings.Join(placeholders, ",")+"))")
 	}
 	if f.Format != "" {
 		where = append(where, "b.format = ?")
