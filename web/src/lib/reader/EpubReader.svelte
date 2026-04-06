@@ -53,27 +53,15 @@
 			});
 
 
-			// Overrides that prevent book CSS from breaking pagination.
-			const overrides = {
+			// Base CSS overrides to prevent book styles from breaking
+			// column pagination. Applied once via default().
+			rendition.themes.default({
 				'img': { 'max-width': '100% !important', 'height': 'auto !important' },
 				'svg': { 'max-width': '100% !important' },
 				'table': { 'max-width': '100% !important' },
 				'pre': { 'white-space': 'pre-wrap !important', 'word-wrap': 'break-word !important' },
-			};
-
-			// Register each theme with overrides baked in so select()
-			// switches everything at once (default() would stick).
-			for (const [name, style] of Object.entries(themes)) {
-				const merged = { ...overrides, ...style };
-				// Merge body styles with padding/margin overrides.
-				merged['body'] = {
-					...(style as Record<string, Record<string, string>>).body,
-					'margin': '0 !important',
-					'padding': '1rem !important',
-					'max-width': 'none !important',
-				};
-				rendition.themes.register(name, merged);
-			}
+				'body': { 'margin': '0 !important', 'padding': '1rem !important', 'max-width': 'none !important' },
+			});
 
 			book.locations.generate(1600).catch(() => {});
 
@@ -83,7 +71,7 @@
 			if (server?.font_size && server.font_size in fontSizes) {
 				currentFontSize = server.font_size as FontSize;
 			}
-			rendition.themes.select(currentTheme);
+			applyTheme(currentTheme);
 			rendition.themes.fontSize(fontSizes[currentFontSize]);
 
 			const localKey = `mylib.read.${bid}.cfi`;
@@ -155,9 +143,20 @@
 		rendition?.display(href);
 		tocOpen = false;
 	}
+	function applyTheme(name: ThemeName) {
+		if (!rendition) return;
+		const t = themes[name];
+		// themes.override() directly sets CSS properties on each
+		// chapter iframe — reliable even when switching back to a
+		// previously used theme (unlike select() which leaves stale
+		// rules in the stylesheet).
+		rendition.themes.override('color', t.body.color);
+		rendition.themes.override('background', t.body.background);
+	}
+
 	function setTheme(name: ThemeName) {
 		currentTheme = name;
-		rendition?.themes.select(name);
+		applyTheme(name);
 	}
 	function setFontSize(size: FontSize) {
 		currentFontSize = size;
