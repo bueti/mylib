@@ -41,7 +41,7 @@
 		<nav>
 			<a href="/">Books</a>
 			<a href="/collections">Collections</a>
-			{#if session.isAdmin}
+			{#if session.can('admin', 'access')}
 				<a href="/admin/duplicates">Admin</a>
 			{/if}
 		</nav>

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { client, type Book } from '$lib/api/client';
+	import { session } from '$lib/api/session.svelte';
 	import {
 		listCollections,
 		createCollection,
@@ -17,6 +19,7 @@
 	let addStatus = $state<string | null>(null);
 	let enriching = $state(false);
 	let enrichStatus = $state<string | null>(null);
+	let deleting = $state(false);
 
 	// Edit mode state.
 	let editing = $state(false);
@@ -134,6 +137,31 @@
 		} finally {
 			addingTo = null;
 			setTimeout(() => (addStatus = null), 3000);
+		}
+	}
+
+	async function deleteBook() {
+		if (!book || deleting) return;
+		const deleteFile = confirm(
+			`Delete "${book.title}"?\n\nClick OK to remove from library.\nThe file will be kept on disk.`
+		);
+		// For simplicity: first confirm removes from DB, second confirm optionally deletes file.
+		const alsoDeleteFile = deleteFile && confirm('Also delete the file from disk? This cannot be undone.');
+
+		if (!deleteFile) return;
+		deleting = true;
+		try {
+			const q = alsoDeleteFile ? '?delete_file=1' : '';
+			const res = await fetch(`/api/books/${book.id}${q}`, {
+				method: 'DELETE',
+				credentials: 'same-origin'
+			});
+			if (!res.ok) throw new Error(await res.text());
+			await goto('/');
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Delete failed');
+		} finally {
+			deleting = false;
 		}
 	}
 
@@ -262,6 +290,12 @@
 			</button>
 			{#if enrichStatus}
 				<p class="add-status">{enrichStatus}</p>
+			{/if}
+
+			{#if session.can('books', 'delete')}
+				<button class="delete-btn" onclick={deleteBook} disabled={deleting}>
+					{deleting ? 'Deleting…' : 'Delete book'}
+				</button>
 			{/if}
 		</div>
 
@@ -486,6 +520,24 @@
 	}
 	.refresh-btn:disabled {
 		color: #999;
+		cursor: wait;
+	}
+	.delete-btn {
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		background: #fff;
+		color: #b00020;
+		border: 1px solid #b00020;
+		border-radius: 4px;
+		font-size: 0.8125rem;
+		cursor: pointer;
+	}
+	.delete-btn:hover:not(:disabled) {
+		background: #b00020;
+		color: #fff;
+	}
+	.delete-btn:disabled {
+		opacity: 0.5;
 		cursor: wait;
 	}
 	.meta-header {

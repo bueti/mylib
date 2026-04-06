@@ -1,5 +1,5 @@
 // Session state for the SPA. Uses a Svelte 5 rune so pages can
-// reactively read the current user.
+// reactively read the current user and their permissions.
 import { goto } from '$app/navigation';
 
 export interface User {
@@ -13,6 +13,7 @@ export interface User {
 // getters so consumers react to updates.
 let _user = $state<User | null>(null);
 let _loaded = $state(false);
+let _permissions = $state<Set<string>>(new Set());
 
 export const session = {
 	get user() {
@@ -23,8 +24,23 @@ export const session = {
 	},
 	get isAdmin() {
 		return _user?.role === 'admin';
+	},
+	/** Check if the current user has a specific permission, e.g. can('books', 'delete') */
+	can(resource: string, action: string): boolean {
+		return _permissions.has(`${resource}:${action}`);
 	}
 };
+
+async function loadPermissions(): Promise<void> {
+	try {
+		const res = await fetch('/api/auth/permissions', { credentials: 'same-origin' });
+		if (!res.ok) return;
+		const data = await res.json();
+		_permissions = new Set((data?.permissions ?? []) as string[]);
+	} catch {
+		_permissions = new Set();
+	}
+}
 
 export async function whoami(): Promise<User | null> {
 	try {
@@ -37,6 +53,7 @@ export async function whoami(): Promise<User | null> {
 		if (!res.ok) throw new Error('HTTP ' + res.status);
 		_user = (await res.json()) as User;
 		_loaded = true;
+		await loadPermissions();
 		return _user;
 	} catch {
 		_user = null;
@@ -58,6 +75,7 @@ export async function login(username: string, password: string): Promise<User> {
 	}
 	_user = (await res.json()) as User;
 	_loaded = true;
+	await loadPermissions();
 	return _user;
 }
 
@@ -67,5 +85,6 @@ export async function logout(): Promise<void> {
 		credentials: 'same-origin'
 	});
 	_user = null;
+	_permissions = new Set();
 	await goto('/login');
 }
