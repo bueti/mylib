@@ -359,6 +359,7 @@
 							{:else}
 								<div class="placeholder">{book.title.charAt(0)}</div>
 							{/if}
+							<span class="format-badge">{book.format.toUpperCase()}</span>
 						</a>
 						<div class="meta">
 							<a href="/books/{book.id}" class="title" title={book.title}>{book.title}</a>
@@ -670,10 +671,24 @@
 	}
 	.cover {
 		display: block;
+		position: relative;
 		aspect-ratio: 2 / 3;
 		background: #eee;
 		border-radius: 4px;
 		overflow: hidden;
+	}
+	.format-badge {
+		position: absolute;
+		top: 0.375rem;
+		right: 0.375rem;
+		padding: 0.1rem 0.375rem;
+		background: rgba(0, 0, 0, 0.6);
+		color: #fff;
+		font-size: 0.625rem;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		border-radius: 3px;
+		line-height: 1.4;
 	}
 	.cover img {
 		width: 100%;
