@@ -272,6 +272,12 @@ func (s *Scanner) scanRoot(ctx context.Context, root string, job *library.ScanJo
 		}
 		job.FilesSeen++
 		seen[path] = struct{}{}
+		// Skip files that were explicitly soft-deleted by the user
+		// (via "Remove from library"). Without this check, the
+		// scanner would re-add them on every scan.
+		if s.store.IsPathSoftDeleted(ctx, path) {
+			return nil
+		}
 		return s.processFile(ctx, path, existing, job)
 	})
 	if err != nil {

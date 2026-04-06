@@ -265,6 +265,17 @@ func (s *Store) ListBooks(ctx context.Context, f BookFilter) ([]*Book, int, erro
 	return books, total, nil
 }
 
+// IsPathSoftDeleted reports whether the given path belongs to a
+// soft-deleted book. Used by the scanner to avoid re-adding books
+// that were explicitly removed by the user.
+func (s *Store) IsPathSoftDeleted(ctx context.Context, path string) bool {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM books WHERE path = ? AND deleted_at IS NOT NULL`, path,
+	).Scan(&n)
+	return err == nil && n > 0
+}
+
 // ListActivePaths returns every known (not deleted) path under root,
 // keyed by path → book id. Used by the scanner to detect removals.
 func (s *Store) ListActivePaths(ctx context.Context, root string) (map[string]int64, error) {
